@@ -1,22 +1,25 @@
-# Content Genie MCP v2.0
+# Content Genie MCP v2.5
 
-> 한국 콘텐츠 크리에이터를 위한 올인원 AI 콘텐츠 어시스턴트
+> 한국 콘텐츠 크리에이터를 위한 올인원 AI 콘텐츠 어시스턴트 (프로 버전)
 
 [![npm version](https://badge.fury.io/js/content-genie-mcp.svg)](https://www.npmjs.com/package/content-genie-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위한 **12가지 강력한 도구**를 제공하는 MCP 서버입니다. 한국 시장에 특화된 트렌드 분석, 콘텐츠 아이디어 생성, SEO 최적화, 바이럴 예측 기능을 제공합니다.
+Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위한 **17가지 강력한 도구**를 제공하는 MCP 서버입니다. 한국 시장에 특화된 트렌드 분석, 콘텐츠 아이디어 생성, SEO 최적화, 바이럴 예측, 인플루언서 협업 분석 기능을 제공합니다.
 
-## v2.0 New Features
+## v2.5 New Features
 
-- 12개 도구로 확장 (기존 7개 → 12개)
+- **17개 도구**로 확장 (기존 12개 → 17개)
 - 실시간 네이버/다음/구글/유튜브 트렌드 스크래핑
-- 40+ 한국 기념일/이벤트 DB 내장
+- **100+ 한국 기념일/이벤트 DB** 내장
 - 고급 바이럴 점수 예측 알고리즘
-- A/B 테스트 변형 자동 생성
-- 플랫폼별 해시태그 전략
+- **썸네일 분석** 및 CTR 최적화
+- **스크립트/대본 아웃라인** 자동 생성
+- **콘텐츠 리퍼포징** 전략 (1개 → 7개 플랫폼)
+- **인플루언서 협업** 분석
+- **콘텐츠 성과 예측** AI
 
-## 12가지 핵심 도구
+## 17가지 핵심 도구
 
 | # | 도구 | 설명 |
 |---|------|------|
@@ -32,6 +35,11 @@ Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위�
 | 10 | `benchmark_content_performance` | 업계별 성과 벤치마크 |
 | 11 | `generate_ab_test_variants` | A/B 테스트 변형 자동 생성 |
 | 12 | `get_seasonal_content_guide` | 시즌/이벤트 콘텐츠 가이드 |
+| 13 | `analyze_thumbnail` | 썸네일 분석 + CTR 최적화 |
+| 14 | `generate_script_outline` | 스크립트/대본 아웃라인 생성 |
+| 15 | `repurpose_content` | 콘텐츠 리퍼포징 전략 |
+| 16 | `analyze_influencer_collab` | 인플루언서 협업 분석 |
+| 17 | `predict_content_performance` | 콘텐츠 성과 예측 AI |
 
 ## 설치 및 사용법
 
@@ -277,12 +285,108 @@ Returns:
 - 해시태그 제안
 ```
 
-## 한국 기념일 DB (40+)
+## 한국 기념일 DB (100+)
 
-- **공휴일**: 새해, 설날, 삼일절, 어린이날, 부처님오신날, 현충일, 광복절, 추석, 개천절, 한글날, 크리스마스
-- **상업 이벤트**: 발렌타인데이, 화이트데이, 어버이날, 로즈데이, 빼빼로데이 등
-- **시즌 이벤트**: 할로윈, 블랙프라이데이, 정월대보름, 수능 등
-- **쇼핑 시즌**: 신년 세일, 여름 세일, 가을 신상, 연말 세일
+- **공휴일 (18개)**: 새해, 설날 연휴, 삼일절, 어린이날, 부처님오신날, 현충일, 광복절, 추석 연휴, 개천절, 한글날, 크리스마스 등
+- **14일 데이 시리즈 (12개)**: 발렌타인데이, 화이트데이, 블랙데이, 로즈데이, 키스데이, 빼빼로데이 등
+- **전통 절기 (15개)**: 정월대보름, 입춘, 경칩, 하지, 초복/중복/말복, 동지 등
+- **글로벌/상업 이벤트 (15개)**: 할로윈, 블랙프라이데이, 사이버먼데이, 지구의날 등
+- **학교/입시 관련 (10개)**: 개학, 수능, 졸업시즌, 방학 등
+- **쇼핑 시즌 (10개)**: 신년 세일, 여름 세일, 가을 신상, 연말 세일 등
+- **시즌/날씨 관련 (12개)**: 벚꽃 시즌, 장마, 폭염, 단풍, 김장철 등
+- **크리에이터 특화 (8개)**: 연간 콘텐츠 기획, 알고리즘 시즌, 연말결산 등
+
+## v2.5 신규 도구 상세
+
+### 13. analyze_thumbnail
+
+```
+YouTube/Instagram 썸네일 컨셉을 분석하고 개선점을 제안합니다.
+
+Parameters:
+- title: 콘텐츠 제목
+- thumbnail_description: 썸네일 설명 (예: 놀란 표정의 사람, 음식 클로즈업)
+- platform: "youtube" | "instagram" | "tiktok" | "blog"
+- content_category: 카테고리 (예: 먹방, 뷰티, 테크)
+
+Returns:
+- 썸네일 점수 (0-100)
+- 감지된 요소 (얼굴, 텍스트, 색상 등)
+- 개선점 및 플랫폼별 베스트 프랙티스
+- CTR 예측
+```
+
+### 14. generate_script_outline
+
+```
+유튜브, 팟캐스트, 릴스용 스크립트 아웃라인을 자동 생성합니다.
+
+Parameters:
+- topic: 콘텐츠 주제
+- format: "youtube_long" | "youtube_short" | "podcast" | "reels" | "tiktok" | "live"
+- duration: 예상 길이 (예: 10분, 30초)
+- style: "educational" | "entertainment" | "storytelling" | "review" | "tutorial"
+
+Returns:
+- 섹션별 아웃라인 (인트로, 훅, 본문, CTA, 아웃트로)
+- 각 섹션별 스크립트 템플릿
+- 오프닝 훅 예시 5개
+- 촬영/편집 팁
+```
+
+### 15. repurpose_content
+
+```
+하나의 콘텐츠를 여러 플랫폼용으로 변환하는 전략을 제안합니다.
+
+Parameters:
+- original_content: 원본 콘텐츠 (제목 또는 설명)
+- source_platform: "youtube" | "blog" | "podcast" | "instagram" | "newsletter"
+- target_platforms: ["youtube_shorts", "instagram_reels", "tiktok", "blog", "twitter", "threads", "linkedin"]
+
+Returns:
+- 플랫폼별 변환 전략
+- 예상 소요 시간
+- 우선순위 점수
+- 제목 자동 변환
+```
+
+### 16. analyze_influencer_collab
+
+```
+인플루언서 협업 전략 및 적합도를 분석합니다.
+
+Parameters:
+- brand_category: 브랜드/제품 카테고리
+- target_audience: 타겟 오디언스
+- budget_range: "low" | "medium" | "high" | "premium"
+- campaign_goal: "awareness" | "engagement" | "conversion" | "content"
+
+Returns:
+- 추천 인플루언서 티어 (나노~메가)
+- 예상 비용 및 참여율
+- 협업 유형 추천
+- 협상 팁 및 주의사항
+```
+
+### 17. predict_content_performance
+
+```
+콘텐츠의 예상 성과를 AI 기반으로 예측합니다.
+
+Parameters:
+- title: 콘텐츠 제목
+- description: 콘텐츠 설명
+- platform: 플랫폼
+- posting_time: 게시 예정 시간
+- has_trending_topic: 트렌딩 주제 포함 여부
+
+Returns:
+- 성과 점수 (0-100)
+- 등급 (A/B/C/D)
+- 예상 조회수/참여율/공유수
+- 최적화 제안
+```
 
 ## 타겟 사용자
 

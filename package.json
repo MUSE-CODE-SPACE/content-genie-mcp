@@ -1,6 +1,6 @@
 {
   "name": "content-genie-mcp",
-  "version": "2.0.0",
+  "version": "2.5.0",
   "description": "AI Content Creation Assistant MCP - 한국 콘텐츠 크리에이터를 위한 트렌드 분석 및 콘텐츠 생성 도우미",
   "main": "dist/index.js",
   "bin": "dist/index.js",
