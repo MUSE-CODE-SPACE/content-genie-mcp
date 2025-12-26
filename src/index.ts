@@ -25,6 +25,111 @@ const ContentTypeSchema = z.enum(["blog", "youtube", "instagram", "tiktok", "new
 const ToneSchema = z.enum(["professional", "casual", "humorous", "educational", "inspirational", "provocative", "storytelling"]);
 
 // =============================================================================
+// 실시간 트렌드 캐시 시스템
+// =============================================================================
+
+interface TrendCache {
+  data: any[];
+  timestamp: number;
+  source: string;
+}
+
+const TREND_CACHE: Record<string, TrendCache> = {};
+const CACHE_TTL = 30 * 60 * 1000; // 30분
+
+function getCachedTrends(platform: string): any[] | null {
+  const cache = TREND_CACHE[platform];
+  if (cache && Date.now() - cache.timestamp < CACHE_TTL) {
+    return cache.data;
+  }
+  return null;
+}
+
+function setCachedTrends(platform: string, data: any[], source: string): void {
+  TREND_CACHE[platform] = { data, timestamp: Date.now(), source };
+}
+
+// 시즌/시간 기반 동적 키워드 생성기
+function generateDynamicKeywords(): { seasonal: string[], timeBase: string[], evergreen: string[] } {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const hour = now.getHours();
+  const dayOfWeek = now.getDay();
+  const date = now.getDate();
+
+  // 계절별 키워드
+  const seasonalKeywords: Record<string, string[]> = {
+    winter: ["겨울 패션", "핫초코", "스키장", "연말 파티", "크리스마스 선물", "방한용품"],
+    spring: ["봄 나들이", "벚꽃 명소", "봄 패션", "꽃구경", "피크닉", "알레르기"],
+    summer: ["여름 휴가", "물놀이", "에어컨", "바캉스", "수박", "썬크림", "휴양지"],
+    fall: ["단풍 여행", "가을 패션", "와인", "독서", "캠핑", "고구마", "할로윈"],
+  };
+
+  const season = month <= 2 || month === 12 ? "winter"
+    : month <= 5 ? "spring"
+    : month <= 8 ? "summer" : "fall";
+
+  // 시간대별 키워드
+  const timeKeywords = hour >= 6 && hour <= 9
+    ? ["아침 루틴", "출근 준비", "모닝커피", "아침 운동", "조식 메뉴"]
+    : hour >= 11 && hour <= 14
+    ? ["점심 메뉴", "런치 맛집", "오후 카페", "낮잠", "점심 도시락"]
+    : hour >= 17 && hour <= 21
+    ? ["퇴근 후 활동", "저녁 메뉴", "헬스장", "넷플릭스", "야식", "홈트"]
+    : ["심야 콘텐츠", "불면증", "야식 배달", "새벽 감성", "올빼미 생활"];
+
+  // 요일별 키워드
+  const dayKeywords = dayOfWeek === 0
+    ? ["일요일 브런치", "주말 마무리", "월요병 극복"]
+    : dayOfWeek === 5
+    ? ["불금", "주말 계획", "금요일 회식"]
+    : dayOfWeek === 6
+    ? ["토요일 나들이", "주말 여행", "늦잠"]
+    : ["평일 루틴", "직장인 팁", "재택근무"];
+
+  // 상시 인기 키워드
+  const evergreenKeywords = [
+    "AI 활용법", "ChatGPT 팁", "돈 버는 방법", "재테크",
+    "다이어트", "운동 루틴", "자기계발", "영어 공부",
+    "부업 추천", "N잡", "투잡", "주식 투자",
+  ];
+
+  return {
+    seasonal: [...seasonalKeywords[season], ...dayKeywords],
+    timeBase: timeKeywords,
+    evergreen: evergreenKeywords,
+  };
+}
+
+// 오늘의 이벤트 기반 키워드 생성
+function getEventBasedKeywords(): string[] {
+  const now = new Date();
+  const dateStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  // 오늘 및 가까운 이벤트 찾기
+  const todayEvent = KOREAN_EVENTS_DB.find(e => e.date === dateStr);
+  const keywords: string[] = [];
+
+  if (todayEvent) {
+    keywords.push(todayEvent.name);
+    keywords.push(...(todayEvent.contentIdeas || []));
+  }
+
+  // 3일 이내 이벤트
+  for (let i = 1; i <= 3; i++) {
+    const futureDate = new Date(now);
+    futureDate.setDate(now.getDate() + i);
+    const futureDateStr = `${String(futureDate.getMonth() + 1).padStart(2, '0')}-${String(futureDate.getDate()).padStart(2, '0')}`;
+    const futureEvent = KOREAN_EVENTS_DB.find(e => e.date === futureDateStr);
+    if (futureEvent && futureEvent.priority === "high") {
+      keywords.push(`${futureEvent.name} 준비`);
+    }
+  }
+
+  return keywords;
+}
+
+// =============================================================================
 // 한국 기념일/이벤트 메가 DB (2025-2026) - 100개 이상
 // =============================================================================
 
@@ -1155,6 +1260,8 @@ async function scrapeNaverTrends(): Promise<any[]> {
       return getNaverFallbackTrends();
     }
 
+    // 성공 시 캐시에 저장
+    setCachedTrends("naver", trends, "realtime_scraping");
     return trends;
   } catch {
     return getNaverFallbackTrends();
@@ -1162,38 +1269,47 @@ async function scrapeNaverTrends(): Promise<any[]> {
 }
 
 function getNaverFallbackTrends(): any[] {
-  const now = new Date();
-  const hour = now.getHours();
+  // 캐시된 구글 트렌드가 있으면 활용
+  const cachedGoogle = getCachedTrends("google");
+  if (cachedGoogle && cachedGoogle.length > 0) {
+    return cachedGoogle.slice(0, 10).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "naver",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      change: ["up", "new", "same"][i % 3],
+      searchVolume: i < 3 ? "매우 높음" : i < 6 ? "높음" : "보통",
+      source: "cached_google_trends"
+    }));
+  }
 
-  // 시간대별 다른 트렌드 반환
-  const baseKeywords = [
-    { keyword: "AI 활용법", category: "tech", evergreen: true },
-    { keyword: "ChatGPT 프롬프트", category: "tech", evergreen: true },
-    { keyword: "Claude 사용법", category: "tech", evergreen: true },
-    { keyword: "재테크 방법", category: "finance", evergreen: true },
-    { keyword: "부동산 전망", category: "finance", evergreen: true },
-    { keyword: "건강 관리", category: "health", evergreen: true },
-    { keyword: "다이어트 식단", category: "health", evergreen: true },
-    { keyword: "여행지 추천", category: "travel", evergreen: true },
-    { keyword: "맛집 탐방", category: "food", evergreen: true },
-    { keyword: "자기계발 책", category: "education", evergreen: true },
+  // 동적 키워드 생성
+  const { seasonal, timeBase, evergreen } = generateDynamicKeywords();
+  const eventKeywords = getEventBasedKeywords();
+
+  // 이벤트 > 시간대 > 시즌 > 상시 순으로 우선순위
+  const prioritizedKeywords = [
+    ...eventKeywords.map(k => ({ keyword: k, priority: 1 })),
+    ...timeBase.map(k => ({ keyword: k, priority: 2 })),
+    ...seasonal.map(k => ({ keyword: k, priority: 3 })),
+    ...evergreen.map(k => ({ keyword: k, priority: 4 })),
   ];
 
-  // 시간대별 추가 키워드
-  const timeBasedKeywords = hour >= 7 && hour <= 9
-    ? [{ keyword: "출근길 팟캐스트", category: "lifestyle" }, { keyword: "아침 루틴", category: "lifestyle" }]
-    : hour >= 11 && hour <= 13
-    ? [{ keyword: "점심 메뉴", category: "food" }, { keyword: "런치 카페", category: "food" }]
-    : hour >= 18 && hour <= 21
-    ? [{ keyword: "퇴근 후 운동", category: "health" }, { keyword: "저녁 레시피", category: "food" }]
-    : [{ keyword: "넷플릭스 추천", category: "entertainment" }, { keyword: "유튜브 인기", category: "entertainment" }];
+  // 중복 제거 및 우선순위 정렬
+  const uniqueKeywords = prioritizedKeywords
+    .filter((item, idx, arr) => arr.findIndex(x => x.keyword === item.keyword) === idx)
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 12);
 
-  return [...baseKeywords, ...timeBasedKeywords].map((item, i) => ({
-    ...item,
+  return uniqueKeywords.map((item, i) => ({
+    keyword: item.keyword,
     platform: "naver",
     rank: i + 1,
-    change: ["up", "new", "same"][Math.floor(Math.random() * 3)],
-    searchVolume: ["매우 높음", "높음", "보통"][Math.floor(Math.random() * 3)],
+    category: categorizeKeyword(item.keyword),
+    change: item.priority === 1 ? "new" : item.priority === 2 ? "up" : "same",
+    searchVolume: item.priority <= 2 ? "매우 높음" : item.priority === 3 ? "높음" : "보통",
+    source: "dynamic_generated",
+    generated_at: new Date().toISOString()
   }));
 }
 
@@ -1232,13 +1348,44 @@ async function scrapeDaumTrends(): Promise<any[]> {
 }
 
 function getDaumFallbackTrends(): any[] {
-  return [
-    { keyword: "IT 뉴스", platform: "daum", rank: 1, category: "tech" },
-    { keyword: "연예 소식", platform: "daum", rank: 2, category: "entertainment" },
-    { keyword: "스포츠 결과", platform: "daum", rank: 3, category: "sports" },
-    { keyword: "경제 동향", platform: "daum", rank: 4, category: "finance" },
-    { keyword: "날씨 정보", platform: "daum", rank: 5, category: "general" },
-  ];
+  // 캐시된 다른 플랫폼 트렌드가 있으면 활용
+  const cachedNaver = getCachedTrends("naver");
+  const cachedGoogle = getCachedTrends("google");
+
+  if (cachedNaver && cachedNaver.length > 0) {
+    return cachedNaver.slice(0, 5).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "daum",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      source: "cached_cross_platform"
+    }));
+  }
+
+  if (cachedGoogle && cachedGoogle.length > 0) {
+    return cachedGoogle.slice(0, 5).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "daum",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      source: "cached_cross_platform"
+    }));
+  }
+
+  // 동적 키워드 생성
+  const { seasonal, timeBase, evergreen } = generateDynamicKeywords();
+  const eventKeywords = getEventBasedKeywords();
+
+  const allKeywords = [...eventKeywords, ...seasonal.slice(0, 2), ...timeBase.slice(0, 2), ...evergreen.slice(0, 3)];
+
+  return allKeywords.slice(0, 10).map((keyword, i) => ({
+    keyword,
+    platform: "daum",
+    rank: i + 1,
+    category: categorizeKeyword(keyword),
+    source: "dynamic_generated",
+    generated_at: new Date().toISOString()
+  }));
 }
 
 // 구글 트렌드 코리아 - 실제 RSS 피드 스크래핑
@@ -1278,6 +1425,8 @@ async function scrapeGoogleTrendsKorea(): Promise<any[]> {
     });
 
     if (trends.length > 0) {
+      // 성공 시 캐시에 저장
+      setCachedTrends("google", trends, "google_trends_rss");
       return trends;
     }
 
@@ -1328,34 +1477,46 @@ async function scrapeGoogleTrendsFallback(): Promise<any[]> {
 }
 
 function getGoogleFallbackTrends(): any[] {
-  const hour = new Date().getHours();
-  const dayOfWeek = new Date().getDay();
+  // 캐시된 네이버 트렌드가 있으면 활용
+  const cachedNaver = getCachedTrends("naver");
+  if (cachedNaver && cachedNaver.length > 0) {
+    return cachedNaver.slice(0, 10).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "google",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      trend: i < 3 ? "rising" : "stable",
+      traffic: i < 3 ? "100K+" : i < 6 ? "50K+" : "10K+",
+      source: "cached_naver_trends"
+    }));
+  }
 
-  const baseTrends = [
-    { keyword: "AI 활용법", category: "tech" },
-    { keyword: "ChatGPT 팁", category: "tech" },
-    { keyword: "주식 시세", category: "finance" },
-    { keyword: "비트코인", category: "finance" },
-    { keyword: "다이어트", category: "health" },
-  ];
+  // 동적 키워드 생성 (글로벌 트렌드 성향 반영)
+  const { seasonal, timeBase, evergreen } = generateDynamicKeywords();
+  const eventKeywords = getEventBasedKeywords();
 
-  // 시간대별 추가 트렌드
-  const timeTrends = hour >= 9 && hour <= 18
-    ? [{ keyword: "점심 메뉴", category: "food" }, { keyword: "카페 추천", category: "food" }]
-    : [{ keyword: "넷플릭스 추천", category: "entertainment" }, { keyword: "게임 추천", category: "entertainment" }];
+  // 구글 스타일 키워드 조합 (더 글로벌하고 정보성 있는)
+  const googleStyleKeywords = [
+    ...eventKeywords,
+    ...timeBase.slice(0, 2),
+    "how to", "best", "vs", "review", // 구글 인기 검색 패턴
+    ...seasonal.slice(0, 3),
+    ...evergreen.slice(0, 4),
+  ].filter(k => k.length > 2);
 
-  // 요일별 추가 트렌드
-  const dayTrends = dayOfWeek === 0 || dayOfWeek === 6
-    ? [{ keyword: "주말 나들이", category: "travel" }, { keyword: "브런치 맛집", category: "food" }]
-    : [{ keyword: "재택근무 팁", category: "work" }, { keyword: "퇴근 후 취미", category: "lifestyle" }];
-
-  return [...baseTrends, ...timeTrends, ...dayTrends].map((item, i) => ({
-    ...item,
+  // 한국어와 영어 혼합 트렌드
+  const mixedTrends = googleStyleKeywords.slice(0, 10).map((keyword, i) => ({
+    keyword: typeof keyword === 'string' ? keyword : keyword,
     platform: "google",
     rank: i + 1,
-    trend: "stable",
-    source: "fallback_dynamic"
+    category: categorizeKeyword(String(keyword)),
+    trend: i < 4 ? "rising" : "stable",
+    traffic: i < 3 ? "100K+" : i < 6 ? "50K+" : "10K+",
+    source: "dynamic_generated",
+    generated_at: new Date().toISOString()
   }));
+
+  return mixedTrends;
 }
 
 // 유튜브 트렌드 코리아 - 실제 스크래핑
@@ -1491,31 +1652,86 @@ function detectVideoFormat(title: string): string {
 }
 
 function getYoutubeFallbackTrends(): any[] {
-  const hour = new Date().getHours();
+  const now = new Date();
+  const hour = now.getHours();
+  const dayOfWeek = now.getDay();
 
-  // 시간대별 인기 카테고리
-  const popularCategories = hour >= 18 || hour <= 2
-    ? ["entertainment", "gaming", "music"]  // 저녁/밤
+  // 캐시된 트렌드 활용
+  const cachedGoogle = getCachedTrends("google");
+  if (cachedGoogle && cachedGoogle.length > 0) {
+    return cachedGoogle.slice(0, 8).map((t, i) => ({
+      keyword: `${t.keyword} 유튜브`,
+      title: `${t.keyword} - 인기 영상`,
+      platform: "youtube",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      format: i % 3 === 0 ? "shorts" : i % 3 === 1 ? "video" : "live",
+      views: `${Math.floor(Math.random() * 500 + 100)}K+`,
+      source: "cached_google_trends"
+    }));
+  }
+
+  // 시간대별 인기 콘텐츠 유형
+  const timeFormats = hour >= 18 || hour <= 2
+    ? [
+      { format: "gaming", label: "게임 실황", views: "500K+" },
+      { format: "entertainment", label: "예능/버라이어티", views: "800K+" },
+      { format: "music", label: "음악/커버", views: "1M+" },
+      { format: "shorts", label: "쇼츠 챌린지", views: "2M+" },
+    ]
     : hour >= 6 && hour <= 9
-    ? ["news", "education", "lifestyle"]    // 아침
-    : ["food", "lifestyle", "tech"];        // 낮
+    ? [
+      { format: "news", label: "뉴스/시사", views: "300K+" },
+      { format: "education", label: "자기계발/교육", views: "200K+" },
+      { format: "lifestyle", label: "모닝 루틴", views: "400K+" },
+    ]
+    : hour >= 11 && hour <= 14
+    ? [
+      { format: "food", label: "먹방/쿡방", views: "600K+" },
+      { format: "vlog", label: "일상 브이로그", views: "350K+" },
+      { format: "shorts", label: "점심시간 쇼츠", views: "1M+" },
+    ]
+    : [
+      { format: "tech", label: "IT/리뷰", views: "250K+" },
+      { format: "lifestyle", label: "라이프스타일", views: "300K+" },
+      { format: "beauty", label: "뷰티/패션", views: "400K+" },
+    ];
 
+  // 이벤트 기반 트렌드 추가
+  const eventKeywords = getEventBasedKeywords();
+  const { seasonal } = generateDynamicKeywords();
+
+  // 유튜브 스타일 트렌드 생성
   const trends = [
-    { keyword: "유튜브 인기 급상승", category: popularCategories[0], format: "trending" },
-    { keyword: "쇼츠 챌린지", category: "shorts", format: "shorts", views: "500K+" },
-    { keyword: "브이로그", category: "lifestyle", format: "vlog", views: "300K+" },
-    { keyword: "먹방 ASMR", category: "food", format: "mukbang", views: "400K+" },
-    { keyword: "게임 실황", category: "gaming", format: "streaming", views: "350K+" },
-    { keyword: "K-POP 커버", category: "music", format: "cover", views: "600K+" },
-    { keyword: "메이크업 튜토리얼", category: "beauty", format: "tutorial", views: "250K+" },
-    { keyword: "IT 리뷰", category: "tech", format: "review", views: "200K+" },
+    ...eventKeywords.slice(0, 2).map(k => ({
+      keyword: k,
+      title: `${k} 특집`,
+      format: "event",
+      views: "1M+",
+      category: categorizeKeyword(k),
+    })),
+    ...timeFormats.map(t => ({
+      keyword: t.label,
+      title: `${t.label} 인기 영상`,
+      format: t.format,
+      views: t.views,
+      category: t.format,
+    })),
+    ...seasonal.slice(0, 2).map(k => ({
+      keyword: k,
+      title: `${k} 추천`,
+      format: "seasonal",
+      views: `${Math.floor(Math.random() * 300 + 100)}K+`,
+      category: categorizeKeyword(k),
+    })),
   ];
 
-  return trends.map((item, i) => ({
+  return trends.slice(0, 10).map((item, i) => ({
     ...item,
     platform: "youtube",
     rank: i + 1,
-    source: "fallback_dynamic"
+    source: "dynamic_generated",
+    generated_at: now.toISOString()
   }));
 }
 
@@ -1621,26 +1837,60 @@ function extractNewsKeyword(headline: string): string {
 }
 
 function getZumFallbackTrends(): any[] {
-  const hour = new Date().getHours();
-  const baseKeywords = [
-    { keyword: "오늘의 뉴스", category: "news" },
-    { keyword: "실시간 이슈", category: "general" },
-    { keyword: "연예 소식", category: "entertainment" },
-    { keyword: "스포츠 결과", category: "sports" },
-    { keyword: "경제 동향", category: "finance" },
+  const now = new Date();
+  const hour = now.getHours();
+
+  // 캐시된 다른 플랫폼 트렌드 활용
+  const cachedNaver = getCachedTrends("naver");
+  const cachedGoogle = getCachedTrends("google");
+
+  if (cachedNaver && cachedNaver.length > 0) {
+    return cachedNaver.slice(0, 6).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "zum",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      source: "cached_naver_trends"
+    }));
+  }
+
+  if (cachedGoogle && cachedGoogle.length > 0) {
+    return cachedGoogle.slice(0, 6).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "zum",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      source: "cached_google_trends"
+    }));
+  }
+
+  // 동적 키워드 생성 (줌은 뉴스/이슈 중심)
+  const eventKeywords = getEventBasedKeywords();
+  const { seasonal, timeBase } = generateDynamicKeywords();
+
+  // 시간대별 뉴스 카테고리 강조
+  const newsCategories = hour >= 6 && hour <= 9
+    ? ["모닝 브리핑", "아침 뉴스 정리", "오늘의 헤드라인"]
+    : hour >= 12 && hour <= 14
+    ? ["점심시간 이슈", "실시간 속보", "오늘 핫토픽"]
+    : hour >= 18 && hour <= 21
+    ? ["저녁 뉴스", "오늘 하루 정리", "내일 전망"]
+    : ["심야 뉴스", "글로벌 이슈", "해외 소식"];
+
+  const allKeywords = [
+    ...eventKeywords.slice(0, 2),
+    ...newsCategories.slice(0, 2),
+    ...timeBase.slice(0, 1),
+    ...seasonal.slice(0, 2),
   ];
 
-  const timeBased = hour >= 7 && hour <= 9
-    ? [{ keyword: "아침 뉴스", category: "news" }]
-    : hour >= 12 && hour <= 14
-    ? [{ keyword: "점심 이슈", category: "general" }]
-    : [{ keyword: "저녁 뉴스", category: "news" }];
-
-  return [...baseKeywords, ...timeBased].map((item, i) => ({
-    ...item,
+  return allKeywords.slice(0, 8).map((keyword, i) => ({
+    keyword,
     platform: "zum",
     rank: i + 1,
-    source: "fallback"
+    category: categorizeKeyword(keyword),
+    source: "dynamic_generated",
+    generated_at: now.toISOString()
   }));
 }
 
@@ -2512,32 +2762,93 @@ async function analyzeAdvancedCompetitorContent(urls: string[], depth: string, e
     }
   }
 
-  // 전략 추출
+  // 전략 추출 (동적 분석 기반)
   let strategyInsights = null;
   if (extractStrategy && results.filter(r => !r.error).length > 0) {
+    const validResults = results.filter(r => !r.error);
+    const withStats = results.filter(r => r.content_stats);
+    const withStructure = results.filter(r => r.content_structure);
+
+    // 공통 패턴 동적 분석
+    const commonPatterns: string[] = [];
+
+    // H2 태그 분석
+    const h2Counts = validResults.filter(r => r.structure?.h2?.length > 0);
+    if (h2Counts.length > validResults.length * 0.5) {
+      const avgH2 = Math.round(h2Counts.reduce((sum, r) => sum + r.structure.h2.length, 0) / h2Counts.length);
+      commonPatterns.push(`H2 태그 평균 ${avgH2}개 사용 (섹션 구분)`);
+    }
+
+    // 이미지 분석
+    if (withStats.length > 0) {
+      const avgImages = Math.round(withStats.reduce((sum, r) => sum + r.content_stats.images_count, 0) / withStats.length);
+      commonPatterns.push(avgImages > 5 ? `이미지 다수 활용 (평균 ${avgImages}개)` : `이미지 적게 사용 (평균 ${avgImages}개)`);
+    }
+
+    // 콘텐츠 구조 분석
+    const hasToc = withStructure.filter(r => r.content_structure?.has_toc).length;
+    const hasFaq = withStructure.filter(r => r.content_structure?.has_faq).length;
+    if (hasToc > 0) commonPatterns.push(`목차(TOC) 제공 - ${hasToc}/${withStructure.length} 사이트`);
+    if (hasFaq > 0) commonPatterns.push(`FAQ 섹션 포함 - ${hasFaq}/${withStructure.length} 사이트`);
+
+    if (commonPatterns.length === 0) {
+      commonPatterns.push("H2 태그로 주요 섹션 구분", "이미지와 텍스트 적절히 배합");
+    }
+
+    // 평균 지표 계산
+    const avgWordCount = withStats.length > 0
+      ? Math.round(withStats.reduce((sum, r) => sum + r.content_stats.word_count, 0) / withStats.length)
+      : 0;
+    const avgImages = withStats.length > 0
+      ? Math.round(withStats.reduce((sum, r) => sum + r.content_stats.images_count, 0) / withStats.length)
+      : 0;
+    const avgVideos = withStats.length > 0
+      ? Math.round(withStats.reduce((sum, r) => sum + r.content_stats.videos_count, 0) / withStats.length)
+      : 0;
+
+    // 기회 포인트 동적 생성
+    const opportunities: string[] = [];
+
+    if (avgVideos === 0) {
+      opportunities.push("비디오 콘텐츠 추가로 차별화 가능 (경쟁사 비디오 미사용)");
+    }
+    if (hasFaq === 0 && withStructure.length > 0) {
+      opportunities.push("FAQ 섹션 추가로 검색 노출 강화 (경쟁사 미적용)");
+    }
+    if (avgWordCount > 0 && avgWordCount < 2000) {
+      opportunities.push(`콘텐츠 분량 확대 권장 (경쟁사 평균 ${avgWordCount}자)`);
+    } else if (avgWordCount >= 2000) {
+      opportunities.push(`상세 콘텐츠로 경쟁 중 - 핵심 정보 차별화 필요`);
+    }
+    if (hasToc === 0 && withStructure.length > 0) {
+      opportunities.push("목차 추가로 사용자 경험 향상 가능");
+    }
+
+    // 키워드 기반 기회
+    const allKeywords = validResults.flatMap(r => r.keyword_analysis?.top_keywords?.slice(0, 5) || []);
+    if (allKeywords.length > 0) {
+      const topKeywords = allKeywords.slice(0, 3).map(k => k.word).join(', ');
+      opportunities.push(`핵심 키워드 집중: ${topKeywords}`);
+    }
+
+    if (opportunities.length === 0) {
+      opportunities.push("더 상세한 가이드로 경쟁 우위 확보", "독자적인 관점/분석 추가");
+    }
+
     strategyInsights = {
-      common_patterns: [
-        "H2 태그로 주요 섹션 구분",
-        "리스트형 콘텐츠 선호",
-        "이미지와 텍스트 적절히 배합",
-      ],
+      common_patterns: commonPatterns.slice(0, 5),
       average_metrics: {
-        avg_word_count: Math.round(
-          results.filter(r => r.content_stats)
-            .reduce((sum, r) => sum + r.content_stats.word_count, 0) /
-          results.filter(r => r.content_stats).length || 1
-        ),
-        avg_images: Math.round(
-          results.filter(r => r.content_stats)
-            .reduce((sum, r) => sum + r.content_stats.images_count, 0) /
-          results.filter(r => r.content_stats).length || 1
-        ),
+        avg_word_count: avgWordCount,
+        avg_images: avgImages,
+        avg_videos: avgVideos,
+        sites_with_toc: hasToc,
+        sites_with_faq: hasFaq,
       },
-      opportunities: [
-        "비디오 콘텐츠 추가로 차별화",
-        "FAQ 섹션 추가로 검색 노출 강화",
-        "더 상세한 가이드로 경쟁 우위",
-      ],
+      opportunities: opportunities.slice(0, 5),
+      recommendation: avgWordCount > 3000
+        ? "경쟁사가 상세 콘텐츠 제공 중 - 품질과 차별화에 집중"
+        : "콘텐츠 깊이와 분량으로 경쟁 우위 확보 가능",
+      analyzed_sites: validResults.length,
     };
   }
 
@@ -2947,31 +3258,72 @@ function generateNewsContentOpportunities(keywords: any[], category: string): st
 function getNewsFallback(category: string): any[] {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];
+  const hour = now.getHours();
+  const dayOfWeek = now.getDay();
+  const month = now.getMonth() + 1;
 
-  const fallbackData: Record<string, any[]> = {
-    general: [
-      { headline: `${dateStr} 오늘의 주요 뉴스`, source: "종합", sentiment: "neutral" },
-      { headline: "AI 기술 발전과 산업 변화", source: "종합", sentiment: "neutral" },
-      { headline: "글로벌 경제 동향", source: "종합", sentiment: "neutral" },
+  // 이벤트 기반 헤드라인 생성
+  const eventKeywords = getEventBasedKeywords();
+  const { seasonal } = generateDynamicKeywords();
+
+  // 시간대별 뉴스 성격
+  const timeContext = hour >= 6 && hour <= 9 ? "아침"
+    : hour >= 12 && hour <= 14 ? "점심"
+    : hour >= 18 && hour <= 21 ? "저녁" : "심야";
+
+  // 요일별 뉴스 성격
+  const dayContext = dayOfWeek === 0 ? "일요일" : dayOfWeek === 6 ? "토요일" : "평일";
+
+  // 카테고리별 동적 헤드라인 생성
+  const dynamicHeadlines: Record<string, () => any[]> = {
+    general: () => [
+      { headline: `[${timeContext} 브리핑] ${dateStr} 오늘의 주요 뉴스`, source: "종합", sentiment: "neutral" },
+      { headline: eventKeywords[0] ? `${eventKeywords[0]} 관련 이슈 정리` : "AI 기술 발전과 산업 변화", source: "종합", sentiment: "neutral" },
+      { headline: `${month}월 ${dayContext} 주요 이슈`, source: "종합", sentiment: "neutral" },
+      { headline: seasonal[0] ? `${seasonal[0]} 트렌드 분석` : "글로벌 경제 동향", source: "종합", sentiment: "neutral" },
     ],
-    tech: [
-      { headline: "AI 서비스 업데이트 소식", source: "IT/과학", sentiment: "positive" },
-      { headline: "테크 기업 신제품 발표", source: "IT/과학", sentiment: "positive" },
-      { headline: "사이버 보안 동향", source: "IT/과학", sentiment: "neutral" },
+    tech: () => [
+      { headline: `[${timeContext}] AI 업계 최신 동향`, source: "IT/과학", sentiment: "positive" },
+      { headline: `${month}월 테크 기업 신제품 소식`, source: "IT/과학", sentiment: "positive" },
+      { headline: "빅테크 기업 AI 전략 업데이트", source: "IT/과학", sentiment: "positive" },
+      { headline: eventKeywords[0] ? `${eventKeywords[0]} 관련 IT 이슈` : "사이버 보안 동향", source: "IT/과학", sentiment: "neutral" },
     ],
-    economy: [
-      { headline: "금융 시장 동향", source: "경제", sentiment: "neutral" },
-      { headline: "부동산 시장 분석", source: "경제", sentiment: "neutral" },
-      { headline: "환율 변동 현황", source: "경제", sentiment: "neutral" },
+    economy: () => [
+      { headline: `[${timeContext}] 증시 동향 - 코스피/코스닥`, source: "경제", sentiment: "neutral" },
+      { headline: `${month}월 부동산 시장 분석`, source: "경제", sentiment: "neutral" },
+      { headline: `오늘의 환율 현황 (${dateStr})`, source: "경제", sentiment: "neutral" },
+      { headline: dayOfWeek === 1 ? "주간 경제 전망" : "글로벌 금융 시장 동향", source: "경제", sentiment: "neutral" },
     ],
-    entertainment: [
-      { headline: "K-POP 글로벌 인기", source: "연예", sentiment: "positive" },
-      { headline: "드라마/예능 화제작", source: "연예", sentiment: "positive" },
-      { headline: "연예계 소식", source: "연예", sentiment: "neutral" },
+    entertainment: () => [
+      { headline: `[${timeContext}] 연예계 HOT 이슈`, source: "연예", sentiment: "positive" },
+      { headline: eventKeywords[0] ? `${eventKeywords[0]} 스타 근황` : "K-POP 글로벌 차트 석권", source: "연예", sentiment: "positive" },
+      { headline: `${month}월 드라마/예능 화제작`, source: "연예", sentiment: "positive" },
+      { headline: dayOfWeek === 0 || dayOfWeek === 6 ? "주말 예능 하이라이트" : "연예계 소식", source: "연예", sentiment: "neutral" },
+    ],
+    sports: () => [
+      { headline: `[${timeContext}] 스포츠 주요 경기 결과`, source: "스포츠", sentiment: "neutral" },
+      { headline: `${month}월 프로 스포츠 하이라이트`, source: "스포츠", sentiment: "positive" },
+      { headline: dayOfWeek === 0 || dayOfWeek === 6 ? "주말 경기 일정" : "평일 스포츠 이슈", source: "스포츠", sentiment: "neutral" },
+    ],
+    politics: () => [
+      { headline: `[${timeContext}] 정치 주요 뉴스`, source: "정치", sentiment: "neutral" },
+      { headline: `${month}월 국회 동향`, source: "정치", sentiment: "neutral" },
+      { headline: "정부 정책 업데이트", source: "정치", sentiment: "neutral" },
+    ],
+    society: () => [
+      { headline: `[${timeContext}] 사회 이슈 브리핑`, source: "사회", sentiment: "neutral" },
+      { headline: seasonal[0] ? `${seasonal[0]} 관련 사회 이슈` : "생활 밀착 뉴스", source: "사회", sentiment: "neutral" },
+      { headline: `${month}월 사회 트렌드`, source: "사회", sentiment: "neutral" },
     ],
   };
 
-  return fallbackData[category] || fallbackData.general;
+  const generator = dynamicHeadlines[category] || dynamicHeadlines.general;
+  return generator().map(item => ({
+    ...item,
+    url: "#",
+    generated_at: now.toISOString(),
+    source_type: "dynamic_fallback"
+  }));
 }
 
 // 해시태그 전략 생성
