@@ -2,9 +2,11 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import { createServer } from "http";
 
 // =============================================================================
 // Content Genie MCP v2.5 - 한국 콘텐츠 크리에이터를 위한 AI 어시스턴트 (프로 버전)
@@ -4355,9 +4357,65 @@ function predictContentPerformance(title: string, description: string, platform:
 // =============================================================================
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("Content Genie MCP Server v2.5 running on stdio");
+  const isHttpMode = process.env.MCP_HTTP_MODE === 'true' || process.argv.includes('--http');
+  const port = parseInt(process.env.PORT || '3000', 10);
+
+  if (isHttpMode) {
+    // HTTP/SSE 모드 (PlayMCP, 웹 클라이언트용)
+    console.log(`Starting Content Genie MCP Server v2.9.0 in HTTP mode on port ${port}...`);
+
+    const httpTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    });
+
+    const httpServer = createServer(async (req, res) => {
+      // CORS 헤더
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // Health check
+      if (req.url === '/health' || req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          server: 'content-genie-mcp',
+          version: '2.9.0',
+          tools: 17,
+          timestamp: new Date().toISOString()
+        }));
+        return;
+      }
+
+      // MCP 요청 처리
+      if (req.url === '/mcp' || req.url === '/sse') {
+        await httpTransport.handleRequest(req, res);
+        return;
+      }
+
+      res.writeHead(404);
+      res.end('Not Found');
+    });
+
+    await server.connect(httpTransport);
+
+    httpServer.listen(port, () => {
+      console.log(`Content Genie MCP Server v2.9.0 running on HTTP port ${port}`);
+      console.log(`Health check: http://localhost:${port}/health`);
+      console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+    });
+  } else {
+    // stdio 모드 (Claude Desktop, Claude Code용)
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("Content Genie MCP Server v2.9.0 running on stdio");
+  }
 }
 
 main().catch(console.error);

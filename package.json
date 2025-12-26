@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:http": "MCP_HTTP_MODE=true node dist/index.js",
     "dev": "ts-node src/index.ts",
     "prepare": "npm run build"
   },
