@@ -4,6 +4,7 @@
 
 [![npm version](https://badge.fury.io/js/content-genie-mcp.svg)](https://www.npmjs.com/package/content-genie-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Wiki](https://img.shields.io/badge/docs-Wiki-blue.svg)](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki)
 
 Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위한 **17가지 강력한 도구**를 제공하는 MCP 서버입니다. 한국 시장에 특화된 트렌드 분석, 콘텐츠 아이디어 생성, SEO 최적화, 바이럴 예측, 인플루언서 협업 분석 기능을 제공합니다.
 
@@ -104,9 +105,24 @@ Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위�
 claude mcp add content-genie-mcp -- npx -y content-genie-mcp
 ```
 
-### PlayMCP
+### PlayMCP (카카오)
 
 [PlayMCP](https://playmcp.kakao.com)에서 "Content Genie"를 검색하여 도구함에 추가하세요.
+
+> **참고**: PlayMCP는 등록 승인 후 사용 가능합니다. 현재 등록 진행 중입니다.
+
+## 문서
+
+- **[Wiki 문서](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki)** - 상세 사용법 및 가이드
+  - [설치 가이드](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Installation)
+  - [빠른 시작](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Quick-Start)
+  - [17가지 도구 개요](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Tools-Overview)
+  - [API 레퍼런스](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/API-Reference)
+- **활용 가이드**
+  - [블로거 가이드](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Guide-Blogger)
+  - [유튜버 가이드](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Guide-YouTuber)
+  - [인스타그래머 가이드](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Guide-Instagram)
+  - [마케터 가이드](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Guide-Marketer)
 
 ## 도구 상세
 
