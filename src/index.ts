@@ -12,7 +12,7 @@ import * as cheerio from "cheerio";
 
 const server = new McpServer({
   name: "content-genie-mcp",
-  version: "2.5.0",
+  version: "2.6.0",
 });
 
 // =============================================================================
@@ -580,6 +580,26 @@ server.tool(
 // Helper Functions - 고도화
 // =============================================================================
 
+// 키워드 카테고리 자동 분류
+function categorizeKeyword(keyword: string): string {
+  const text = keyword.toLowerCase();
+
+  if (/ai|gpt|인공지능|기술|테크|앱|소프트웨어|코딩|개발/.test(text)) return "tech";
+  if (/주식|코인|비트코인|투자|금리|경제|재테크|부동산|환율/.test(text)) return "finance";
+  if (/운동|헬스|다이어트|건강|병원|의료|영양/.test(text)) return "health";
+  if (/맛집|음식|요리|레시피|카페|먹방|배달/.test(text)) return "food";
+  if (/여행|호텔|관광|항공|휴가|리조트/.test(text)) return "travel";
+  if (/드라마|영화|연예|아이돌|방송|예능|넷플릭스|kpop/.test(text)) return "entertainment";
+  if (/게임|롤|배그|스팀|플스|닌텐도/.test(text)) return "gaming";
+  if (/뷰티|화장품|스킨케어|메이크업|패션|옷/.test(text)) return "beauty";
+  if (/축구|야구|농구|스포츠|올림픽|월드컵/.test(text)) return "sports";
+  if (/교육|공부|학교|시험|자격증|취업/.test(text)) return "education";
+  if (/쇼핑|할인|세일|구매|가격/.test(text)) return "shopping";
+  if (/뉴스|정치|사회|이슈/.test(text)) return "news";
+
+  return "general";
+}
+
 // 네이버 트렌드 스크래핑
 async function scrapeNaverTrends(): Promise<any[]> {
   try {
@@ -696,40 +716,407 @@ function getDaumFallbackTrends(): any[] {
   ];
 }
 
-// 구글 트렌드 코리아
+// 구글 트렌드 코리아 - 실제 RSS 피드 스크래핑
 async function scrapeGoogleTrendsKorea(): Promise<any[]> {
-  return [
-    { keyword: "생성형 AI", platform: "google", rank: 1, category: "tech", trend: "rising" },
-    { keyword: "K-POP 신곡", platform: "google", rank: 2, category: "entertainment", trend: "stable" },
-    { keyword: "미국 주식", platform: "google", rank: 3, category: "finance", trend: "rising" },
-    { keyword: "비트코인 전망", platform: "google", rank: 4, category: "finance", trend: "volatile" },
-    { keyword: "건강식품 추천", platform: "google", rank: 5, category: "health", trend: "rising" },
-    { keyword: "원격 근무", platform: "google", rank: 6, category: "work", trend: "stable" },
-    { keyword: "전기차 비교", platform: "google", rank: 7, category: "auto", trend: "rising" },
-  ];
+  try {
+    // Google Trends Daily RSS Feed for Korea
+    const response = await axios.get('https://trends.google.com/trending/rss?geo=KR', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/rss+xml, application/xml, text/xml'
+      },
+      timeout: 8000,
+    });
+
+    const $ = cheerio.load(response.data, { xmlMode: true });
+    const trends: any[] = [];
+
+    $('item').each((i, el) => {
+      if (i >= 15) return false; // 최대 15개
+
+      const title = $(el).find('title').text().trim();
+      const traffic = $(el).find('ht\\:approx_traffic, approx_traffic').text().trim();
+      const newsItem = $(el).find('ht\\:news_item_title, news_item_title').first().text().trim();
+
+      if (title) {
+        trends.push({
+          keyword: title,
+          platform: "google",
+          rank: i + 1,
+          category: categorizeKeyword(title),
+          trend: "rising",
+          traffic: traffic || "10K+",
+          related_news: newsItem || null,
+          source: "google_trends_rss"
+        });
+      }
+    });
+
+    if (trends.length > 0) {
+      return trends;
+    }
+
+    // Fallback: 실시간 검색 트렌드 페이지 스크래핑 시도
+    return await scrapeGoogleTrendsFallback();
+  } catch (error) {
+    return await scrapeGoogleTrendsFallback();
+  }
 }
 
-// 유튜브 트렌드 코리아
+// Google Trends Fallback - 트렌드 페이지 스크래핑
+async function scrapeGoogleTrendsFallback(): Promise<any[]> {
+  try {
+    const response = await axios.get('https://trends.google.co.kr/trends/trendingsearches/daily?geo=KR', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9'
+      },
+      timeout: 8000,
+    });
+
+    const $ = cheerio.load(response.data);
+    const trends: any[] = [];
+
+    // 다양한 셀렉터 시도
+    $('[class*="feed-item"], [class*="trending"], .title').each((i, el) => {
+      if (i >= 10) return false;
+      const keyword = $(el).text().trim();
+      if (keyword && keyword.length > 1 && keyword.length < 50) {
+        trends.push({
+          keyword,
+          platform: "google",
+          rank: i + 1,
+          category: categorizeKeyword(keyword),
+          trend: "rising",
+          source: "google_trends_page"
+        });
+      }
+    });
+
+    if (trends.length > 0) return trends;
+
+    // 최종 Fallback: 시간대별 동적 데이터
+    return getGoogleFallbackTrends();
+  } catch {
+    return getGoogleFallbackTrends();
+  }
+}
+
+function getGoogleFallbackTrends(): any[] {
+  const hour = new Date().getHours();
+  const dayOfWeek = new Date().getDay();
+
+  const baseTrends = [
+    { keyword: "AI 활용법", category: "tech" },
+    { keyword: "ChatGPT 팁", category: "tech" },
+    { keyword: "주식 시세", category: "finance" },
+    { keyword: "비트코인", category: "finance" },
+    { keyword: "다이어트", category: "health" },
+  ];
+
+  // 시간대별 추가 트렌드
+  const timeTrends = hour >= 9 && hour <= 18
+    ? [{ keyword: "점심 메뉴", category: "food" }, { keyword: "카페 추천", category: "food" }]
+    : [{ keyword: "넷플릭스 추천", category: "entertainment" }, { keyword: "게임 추천", category: "entertainment" }];
+
+  // 요일별 추가 트렌드
+  const dayTrends = dayOfWeek === 0 || dayOfWeek === 6
+    ? [{ keyword: "주말 나들이", category: "travel" }, { keyword: "브런치 맛집", category: "food" }]
+    : [{ keyword: "재택근무 팁", category: "work" }, { keyword: "퇴근 후 취미", category: "lifestyle" }];
+
+  return [...baseTrends, ...timeTrends, ...dayTrends].map((item, i) => ({
+    ...item,
+    platform: "google",
+    rank: i + 1,
+    trend: "stable",
+    source: "fallback_dynamic"
+  }));
+}
+
+// 유튜브 트렌드 코리아 - 실제 스크래핑
 async function scrapeYoutubeTrendsKorea(): Promise<any[]> {
-  return [
-    { keyword: "브이로그", platform: "youtube", rank: 1, category: "lifestyle", views: "1.5M", format: "vlog" },
-    { keyword: "먹방", platform: "youtube", rank: 2, category: "food", views: "1.2M", format: "mukbang" },
-    { keyword: "게임 실황", platform: "youtube", rank: 3, category: "gaming", views: "980K", format: "streaming" },
-    { keyword: "뷰티 튜토리얼", platform: "youtube", rank: 4, category: "beauty", views: "850K", format: "tutorial" },
-    { keyword: "운동 루틴", platform: "youtube", rank: 5, category: "fitness", views: "720K", format: "how-to" },
-    { keyword: "코딩 강의", platform: "youtube", rank: 6, category: "education", views: "650K", format: "lecture" },
-    { keyword: "여행 영상", platform: "youtube", rank: 7, category: "travel", views: "600K", format: "cinematic" },
-    { keyword: "숏폼 콘텐츠", platform: "youtube", rank: 8, category: "shorts", views: "2.1M", format: "shorts" },
-  ];
+  try {
+    // YouTube Korea Trending 페이지
+    const response = await axios.get('https://www.youtube.com/feed/trending?gl=KR&hl=ko', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      timeout: 10000,
+    });
+
+    const trends: any[] = [];
+    const html = response.data;
+
+    // YouTube 초기 데이터 JSON 추출
+    const ytInitialDataMatch = html.match(/var ytInitialData = ({.*?});<\/script>/s);
+    if (ytInitialDataMatch) {
+      try {
+        const data = JSON.parse(ytInitialDataMatch[1]);
+        const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+
+        for (const tab of tabs) {
+          const contents = tab?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+          for (const section of contents) {
+            const items = section?.itemSectionRenderer?.contents || [];
+            for (const item of items) {
+              const video = item?.videoRenderer;
+              if (video && trends.length < 15) {
+                const title = video?.title?.runs?.[0]?.text || video?.title?.simpleText || '';
+                const viewCount = video?.viewCountText?.simpleText || video?.shortViewCountText?.simpleText || '';
+                const channel = video?.ownerText?.runs?.[0]?.text || '';
+
+                if (title) {
+                  trends.push({
+                    keyword: extractKeywordFromTitle(title),
+                    title: title,
+                    platform: "youtube",
+                    rank: trends.length + 1,
+                    category: categorizeYouTubeContent(title, channel),
+                    views: viewCount,
+                    channel: channel,
+                    format: detectVideoFormat(title),
+                    source: "youtube_trending"
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (parseError) {
+        // JSON 파싱 실패 시 fallback
+      }
+    }
+
+    // HTML 파싱 시도 (JSON 실패 시)
+    if (trends.length === 0) {
+      const $ = cheerio.load(html);
+      $('a#video-title').each((i, el) => {
+        if (i >= 15) return false;
+        const title = $(el).text().trim();
+        if (title) {
+          trends.push({
+            keyword: extractKeywordFromTitle(title),
+            title: title,
+            platform: "youtube",
+            rank: i + 1,
+            category: categorizeYouTubeContent(title, ''),
+            format: detectVideoFormat(title),
+            source: "youtube_html"
+          });
+        }
+      });
+    }
+
+    if (trends.length > 0) return trends;
+    return getYoutubeFallbackTrends();
+  } catch (error) {
+    return getYoutubeFallbackTrends();
+  }
 }
 
-// 줌 트렌드
-async function scrapeZumTrends(): Promise<any[]> {
-  return [
-    { keyword: "오늘의 뉴스", platform: "zum", rank: 1, category: "news" },
-    { keyword: "핫이슈", platform: "zum", rank: 2, category: "general" },
-    { keyword: "연예 화제", platform: "zum", rank: 3, category: "entertainment" },
+// YouTube 제목에서 키워드 추출
+function extractKeywordFromTitle(title: string): string {
+  // 대괄호, 괄호 내용 제거
+  let keyword = title.replace(/[\[\(【].*?[\]\)】]/g, '').trim();
+  // 특수문자 제거
+  keyword = keyword.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ').trim();
+  // 너무 길면 자르기
+  if (keyword.length > 30) {
+    keyword = keyword.substring(0, 30) + '...';
+  }
+  return keyword || title.substring(0, 30);
+}
+
+// YouTube 콘텐츠 카테고리 분류
+function categorizeYouTubeContent(title: string, channel: string): string {
+  const text = (title + ' ' + channel).toLowerCase();
+
+  if (/먹방|mukbang|음식|요리|레시피|맛집/.test(text)) return "food";
+  if (/게임|gaming|롤|lol|배그|minecraft/.test(text)) return "gaming";
+  if (/뷰티|메이크업|화장|스킨케어|뷰스타/.test(text)) return "beauty";
+  if (/운동|헬스|다이어트|fitness|workout/.test(text)) return "fitness";
+  if (/브이로그|vlog|일상/.test(text)) return "lifestyle";
+  if (/여행|travel|trip/.test(text)) return "travel";
+  if (/음악|노래|커버|music|mv/.test(text)) return "music";
+  if (/드라마|예능|영화|movie/.test(text)) return "entertainment";
+  if (/공부|강의|교육|tutorial/.test(text)) return "education";
+  if (/테크|리뷰|tech|unboxing/.test(text)) return "tech";
+  if (/뉴스|이슈|news/.test(text)) return "news";
+  if (/shorts|쇼츠|숏/.test(text)) return "shorts";
+
+  return "general";
+}
+
+// 영상 포맷 감지
+function detectVideoFormat(title: string): string {
+  const text = title.toLowerCase();
+
+  if (/shorts|쇼츠/.test(text)) return "shorts";
+  if (/vlog|브이로그|일상/.test(text)) return "vlog";
+  if (/먹방|mukbang/.test(text)) return "mukbang";
+  if (/asmr/.test(text)) return "asmr";
+  if (/리뷰|review|언박싱|unboxing/.test(text)) return "review";
+  if (/튜토리얼|tutorial|강의|하는 법/.test(text)) return "tutorial";
+  if (/live|라이브/.test(text)) return "live";
+  if (/mv|뮤비|music video/.test(text)) return "music_video";
+
+  return "standard";
+}
+
+function getYoutubeFallbackTrends(): any[] {
+  const hour = new Date().getHours();
+
+  // 시간대별 인기 카테고리
+  const popularCategories = hour >= 18 || hour <= 2
+    ? ["entertainment", "gaming", "music"]  // 저녁/밤
+    : hour >= 6 && hour <= 9
+    ? ["news", "education", "lifestyle"]    // 아침
+    : ["food", "lifestyle", "tech"];        // 낮
+
+  const trends = [
+    { keyword: "유튜브 인기 급상승", category: popularCategories[0], format: "trending" },
+    { keyword: "쇼츠 챌린지", category: "shorts", format: "shorts", views: "500K+" },
+    { keyword: "브이로그", category: "lifestyle", format: "vlog", views: "300K+" },
+    { keyword: "먹방 ASMR", category: "food", format: "mukbang", views: "400K+" },
+    { keyword: "게임 실황", category: "gaming", format: "streaming", views: "350K+" },
+    { keyword: "K-POP 커버", category: "music", format: "cover", views: "600K+" },
+    { keyword: "메이크업 튜토리얼", category: "beauty", format: "tutorial", views: "250K+" },
+    { keyword: "IT 리뷰", category: "tech", format: "review", views: "200K+" },
   ];
+
+  return trends.map((item, i) => ({
+    ...item,
+    platform: "youtube",
+    rank: i + 1,
+    source: "fallback_dynamic"
+  }));
+}
+
+// 줌 트렌드 - 실제 스크래핑
+async function scrapeZumTrends(): Promise<any[]> {
+  try {
+    // Zum 메인 페이지 실시간 검색어
+    const response = await axios.get('https://zum.com/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+      },
+      timeout: 8000,
+    });
+
+    const $ = cheerio.load(response.data);
+    const trends: any[] = [];
+
+    // 줌 실시간 검색어 셀렉터들
+    const selectors = [
+      '.realtime_keyword_list li',
+      '.issue_keyword li',
+      '[class*="ranking"] li',
+      '[class*="keyword"] a',
+      '.hot_keyword li'
+    ];
+
+    for (const selector of selectors) {
+      if (trends.length >= 10) break;
+
+      $(selector).each((i, el) => {
+        if (trends.length >= 10) return false;
+
+        const keyword = $(el).text().trim()
+          .replace(/^\d+\.?\s*/, '')  // 순위 번호 제거
+          .replace(/new|↑|↓|─/gi, '') // 변동 표시 제거
+          .trim();
+
+        if (keyword && keyword.length > 1 && keyword.length < 30 && !trends.find(t => t.keyword === keyword)) {
+          trends.push({
+            keyword,
+            platform: "zum",
+            rank: trends.length + 1,
+            category: categorizeKeyword(keyword),
+            source: "zum_realtime"
+          });
+        }
+      });
+    }
+
+    if (trends.length > 0) return trends;
+
+    // Zum 뉴스 섹션 시도
+    return await scrapeZumNewsTrends();
+  } catch (error) {
+    return await scrapeZumNewsTrends();
+  }
+}
+
+async function scrapeZumNewsTrends(): Promise<any[]> {
+  try {
+    const response = await axios.get('https://news.zum.com/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+      },
+      timeout: 8000,
+    });
+
+    const $ = cheerio.load(response.data);
+    const trends: any[] = [];
+
+    // 뉴스 헤드라인에서 키워드 추출
+    $('h2, h3, .headline, .title, [class*="news_title"]').each((i, el) => {
+      if (trends.length >= 10) return false;
+
+      const text = $(el).text().trim();
+      if (text && text.length > 5 && text.length < 50) {
+        const keyword = extractNewsKeyword(text);
+        if (keyword && !trends.find(t => t.keyword === keyword)) {
+          trends.push({
+            keyword,
+            platform: "zum",
+            rank: trends.length + 1,
+            category: categorizeKeyword(keyword),
+            source: "zum_news"
+          });
+        }
+      }
+    });
+
+    if (trends.length > 0) return trends;
+    return getZumFallbackTrends();
+  } catch {
+    return getZumFallbackTrends();
+  }
+}
+
+function extractNewsKeyword(headline: string): string {
+  // 헤드라인에서 핵심 키워드 추출
+  const words = headline.split(/[\s,\.…]+/).filter(w => w.length >= 2 && w.length <= 10);
+  return words.slice(0, 3).join(' ') || headline.substring(0, 20);
+}
+
+function getZumFallbackTrends(): any[] {
+  const hour = new Date().getHours();
+  const baseKeywords = [
+    { keyword: "오늘의 뉴스", category: "news" },
+    { keyword: "실시간 이슈", category: "general" },
+    { keyword: "연예 소식", category: "entertainment" },
+    { keyword: "스포츠 결과", category: "sports" },
+    { keyword: "경제 동향", category: "finance" },
+  ];
+
+  const timeBased = hour >= 7 && hour <= 9
+    ? [{ keyword: "아침 뉴스", category: "news" }]
+    : hour >= 12 && hour <= 14
+    ? [{ keyword: "점심 이슈", category: "general" }]
+    : [{ keyword: "저녁 뉴스", category: "news" }];
+
+  return [...baseKeywords, ...timeBased].map((item, i) => ({
+    ...item,
+    platform: "zum",
+    rank: i + 1,
+    source: "fallback"
+  }));
 }
 
 // 고급 트렌드 인사이트 생성
@@ -1608,60 +1995,281 @@ function predictAdvancedViralScore(
   };
 }
 
-// 뉴스 분석
+// 뉴스 분석 - 실제 스크래핑
 async function analyzeKoreanNews(category: string, timeRange: string, extractKeywords: boolean): Promise<any> {
-  // 카테고리별 뉴스 키워드 시뮬레이션
-  const newsData: Record<string, any[]> = {
-    general: [
-      { headline: "AI 기술 발전과 일자리 변화", source: "종합", sentiment: "neutral" },
-      { headline: "글로벌 경제 동향 분석", source: "경제", sentiment: "neutral" },
-      { headline: "2025년 트렌드 전망", source: "라이프", sentiment: "positive" },
-    ],
-    tech: [
-      { headline: "ChatGPT 신기능 출시", source: "테크", sentiment: "positive" },
-      { headline: "애플 신제품 발표", source: "테크", sentiment: "positive" },
-      { headline: "사이버 보안 위협 증가", source: "테크", sentiment: "negative" },
-    ],
-    economy: [
-      { headline: "한국은행 금리 결정", source: "경제", sentiment: "neutral" },
-      { headline: "부동산 시장 동향", source: "경제", sentiment: "neutral" },
-      { headline: "환율 변동성 확대", source: "경제", sentiment: "negative" },
-    ],
-    entertainment: [
-      { headline: "K-POP 글로벌 인기", source: "연예", sentiment: "positive" },
-      { headline: "넷플릭스 신작 화제", source: "연예", sentiment: "positive" },
-      { headline: "연예계 이슈", source: "연예", sentiment: "neutral" },
-    ],
+  const news: any[] = [];
+  const allKeywords: string[] = [];
+
+  // 카테고리별 네이버 뉴스 섹션 URL
+  const categoryUrls: Record<string, string> = {
+    general: 'https://news.naver.com/',
+    politics: 'https://news.naver.com/section/100',
+    economy: 'https://news.naver.com/section/101',
+    society: 'https://news.naver.com/section/102',
+    culture: 'https://news.naver.com/section/103',
+    tech: 'https://news.naver.com/section/105',
+    sports: 'https://sports.news.naver.com/',
+    entertainment: 'https://entertain.naver.com/home',
   };
 
-  const news = newsData[category] || newsData.general;
+  const url = categoryUrls[category] || categoryUrls.general;
 
-  const keywords = extractKeywords ? [
-    { keyword: "AI", frequency: 45, trend: "상승" },
-    { keyword: "경제", frequency: 38, trend: "유지" },
-    { keyword: "트렌드", frequency: 32, trend: "상승" },
-    { keyword: "투자", frequency: 28, trend: "상승" },
-    { keyword: "기술", frequency: 25, trend: "상승" },
-  ] : [];
+  try {
+    // 네이버 뉴스 스크래핑
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+      },
+      timeout: 10000,
+    });
+
+    const $ = cheerio.load(response.data);
+
+    // 헤드라인 추출 - 다양한 셀렉터 시도
+    const headlineSelectors = [
+      '.cjs_t', // 네이버 뉴스 메인
+      '.sa_text_title',
+      'a.news_tit',
+      '.cluster_text_headline',
+      '.cluster_head_topic',
+      'h2.tit',
+      '.link_news',
+      '[class*="headline"] a',
+      '[class*="title"] a',
+    ];
+
+    for (const selector of headlineSelectors) {
+      if (news.length >= 15) break;
+
+      $(selector).each((i, el) => {
+        if (news.length >= 15) return false;
+
+        const headline = $(el).text().trim();
+        const href = $(el).attr('href') || '';
+
+        if (headline && headline.length > 10 && headline.length < 100) {
+          // 중복 체크
+          if (!news.find(n => n.headline === headline)) {
+            const sentiment = analyzeSentiment(headline);
+
+            news.push({
+              headline,
+              source: detectNewsSource(href, category),
+              sentiment,
+              url: href.startsWith('http') ? href : `https://news.naver.com${href}`,
+            });
+
+            // 키워드 추출
+            if (extractKeywords) {
+              const words = extractKeywordsFromText(headline);
+              allKeywords.push(...words);
+            }
+          }
+        }
+      });
+    }
+  } catch (error) {
+    // 네이버 실패 시 다음 뉴스 시도
+    try {
+      const daumNews = await scrapeDaumNews(category);
+      news.push(...daumNews);
+
+      if (extractKeywords) {
+        daumNews.forEach(n => {
+          allKeywords.push(...extractKeywordsFromText(n.headline));
+        });
+      }
+    } catch {
+      // 모두 실패 시 Fallback
+    }
+  }
+
+  // Fallback: 뉴스가 없으면 기본 데이터
+  if (news.length === 0) {
+    news.push(...getNewsFallback(category));
+  }
+
+  // 키워드 빈도 계산
+  const keywordFrequency = extractKeywords ? calculateKeywordFrequency(allKeywords) : [];
+
+  // 감성 분석 요약
+  const sentiments = news.map(n => n.sentiment);
+  const positiveCount = sentiments.filter(s => s === 'positive').length;
+  const negativeCount = sentiments.filter(s => s === 'negative').length;
+  const neutralCount = sentiments.filter(s => s === 'neutral').length;
+  const total = sentiments.length || 1;
 
   return {
     category,
     time_range: timeRange,
     analyzed_at: new Date().toISOString(),
-    top_news: news,
-    extracted_keywords: keywords,
+    source: news.length > 0 && news[0].url?.includes('naver') ? 'naver_news' : 'daum_news',
+    top_news: news.slice(0, 10),
+    extracted_keywords: keywordFrequency.slice(0, 10),
     sentiment_summary: {
-      positive: "35%",
-      neutral: "50%",
-      negative: "15%",
+      positive: `${Math.round((positiveCount / total) * 100)}%`,
+      neutral: `${Math.round((neutralCount / total) * 100)}%`,
+      negative: `${Math.round((negativeCount / total) * 100)}%`,
     },
-    content_opportunities: [
-      "AI 관련 콘텐츠 수요 증가 - 입문자 가이드 추천",
-      "경제 불안 심리 반영 - 재테크 팁 콘텐츠",
-      "K-콘텐츠 글로벌 화제 - 한류 관련 콘텐츠",
-    ],
-    trending_topics: news.map(n => n.headline),
+    content_opportunities: generateNewsContentOpportunities(keywordFrequency, category),
+    trending_topics: news.slice(0, 5).map(n => n.headline),
   };
+}
+
+// 다음 뉴스 스크래핑
+async function scrapeDaumNews(category: string): Promise<any[]> {
+  const categoryUrls: Record<string, string> = {
+    general: 'https://news.daum.net/',
+    politics: 'https://news.daum.net/politics',
+    economy: 'https://news.daum.net/economic',
+    society: 'https://news.daum.net/society',
+    culture: 'https://news.daum.net/culture',
+    tech: 'https://news.daum.net/digital',
+    sports: 'https://sports.daum.net/',
+    entertainment: 'https://entertain.daum.net/',
+  };
+
+  const url = categoryUrls[category] || categoryUrls.general;
+
+  const response = await axios.get(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'Accept-Language': 'ko-KR,ko;q=0.9',
+    },
+    timeout: 8000,
+  });
+
+  const $ = cheerio.load(response.data);
+  const news: any[] = [];
+
+  $('[class*="link_txt"], .tit_g, .news_view, .txt_info').each((i, el) => {
+    if (news.length >= 10) return false;
+
+    const headline = $(el).text().trim();
+    if (headline && headline.length > 10 && headline.length < 100) {
+      if (!news.find(n => n.headline === headline)) {
+        news.push({
+          headline,
+          source: '다음뉴스',
+          sentiment: analyzeSentiment(headline),
+        });
+      }
+    }
+  });
+
+  return news;
+}
+
+// 감성 분석 (간단 버전)
+function analyzeSentiment(text: string): 'positive' | 'neutral' | 'negative' {
+  const positiveWords = /성공|상승|호조|기대|돌파|신기록|수상|인기|사랑|행복|좋은|최고|혁신|성장/;
+  const negativeWords = /하락|위기|우려|실패|폭락|충격|논란|피해|사망|사고|비난|급락|위험|문제/;
+
+  if (positiveWords.test(text)) return 'positive';
+  if (negativeWords.test(text)) return 'negative';
+  return 'neutral';
+}
+
+// 뉴스 소스 감지
+function detectNewsSource(url: string, category: string): string {
+  if (url.includes('sports')) return '스포츠';
+  if (url.includes('entertain')) return '연예';
+
+  const sources: Record<string, string> = {
+    politics: '정치',
+    economy: '경제',
+    society: '사회',
+    culture: '문화',
+    tech: 'IT/과학',
+    sports: '스포츠',
+    entertainment: '연예',
+  };
+
+  return sources[category] || '종합';
+}
+
+// 텍스트에서 키워드 추출
+function extractKeywordsFromText(text: string): string[] {
+  // 특수문자 제거 후 2-6자 단어만 추출
+  const words = text
+    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 2 && w.length <= 6)
+    .filter(w => !/^\d+$/.test(w)); // 숫자만 있는 것 제외
+
+  return words;
+}
+
+// 키워드 빈도 계산
+function calculateKeywordFrequency(words: string[]): any[] {
+  const frequency: Record<string, number> = {};
+
+  words.forEach(word => {
+    frequency[word] = (frequency[word] || 0) + 1;
+  });
+
+  return Object.entries(frequency)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .map(([keyword, freq]) => ({
+      keyword,
+      frequency: freq,
+      trend: freq >= 5 ? '상승' : freq >= 3 ? '유지' : '일반',
+    }));
+}
+
+// 뉴스 기반 콘텐츠 기회 생성
+function generateNewsContentOpportunities(keywords: any[], category: string): string[] {
+  const opportunities: string[] = [];
+
+  if (keywords.length > 0) {
+    const topKeyword = keywords[0]?.keyword || '';
+    opportunities.push(`"${topKeyword}" 관련 콘텐츠 수요 증가 - 해설/분석 콘텐츠 추천`);
+  }
+
+  const categoryOpportunities: Record<string, string[]> = {
+    tech: ['AI/테크 트렌드 정리 콘텐츠', '신제품 리뷰 콘텐츠'],
+    economy: ['재테크 팁 콘텐츠', '경제 뉴스 쉽게 풀어주기'],
+    entertainment: ['K-콘텐츠 글로벌 화제', '연예 이슈 정리'],
+    sports: ['경기 하이라이트', '선수 인터뷰 분석'],
+    general: ['오늘의 이슈 정리', '트렌드 분석 콘텐츠'],
+  };
+
+  opportunities.push(...(categoryOpportunities[category] || categoryOpportunities.general));
+
+  return opportunities.slice(0, 5);
+}
+
+// 뉴스 Fallback 데이터
+function getNewsFallback(category: string): any[] {
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+
+  const fallbackData: Record<string, any[]> = {
+    general: [
+      { headline: `${dateStr} 오늘의 주요 뉴스`, source: "종합", sentiment: "neutral" },
+      { headline: "AI 기술 발전과 산업 변화", source: "종합", sentiment: "neutral" },
+      { headline: "글로벌 경제 동향", source: "종합", sentiment: "neutral" },
+    ],
+    tech: [
+      { headline: "AI 서비스 업데이트 소식", source: "IT/과학", sentiment: "positive" },
+      { headline: "테크 기업 신제품 발표", source: "IT/과학", sentiment: "positive" },
+      { headline: "사이버 보안 동향", source: "IT/과학", sentiment: "neutral" },
+    ],
+    economy: [
+      { headline: "금융 시장 동향", source: "경제", sentiment: "neutral" },
+      { headline: "부동산 시장 분석", source: "경제", sentiment: "neutral" },
+      { headline: "환율 변동 현황", source: "경제", sentiment: "neutral" },
+    ],
+    entertainment: [
+      { headline: "K-POP 글로벌 인기", source: "연예", sentiment: "positive" },
+      { headline: "드라마/예능 화제작", source: "연예", sentiment: "positive" },
+      { headline: "연예계 소식", source: "연예", sentiment: "neutral" },
+    ],
+  };
+
+  return fallbackData[category] || fallbackData.general;
 }
 
 // 해시태그 전략 생성
