@@ -16,7 +16,7 @@ import crypto from "crypto";
 
 const server = new McpServer({
   name: "content-genie-mcp",
-  version: "2.9.1",
+  version: "2.9.2",
 });
 
 // =============================================================================
@@ -4464,7 +4464,7 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.9.1',
+        version: '2.9.2',
         tools: 17,
         timestamp: new Date().toISOString()
       });
@@ -4474,7 +4474,7 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.9.1',
+        version: '2.9.2',
         tools: 17,
         timestamp: new Date().toISOString()
       });
@@ -4492,7 +4492,7 @@ async function main() {
           result: {
             protocolVersion: '2024-11-05',
             capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: 'content-genie-mcp', version: '2.9.1' }
+            serverInfo: { name: 'content-genie-mcp', version: '2.9.2' }
           }
         });
         return;
