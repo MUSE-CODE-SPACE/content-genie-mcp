@@ -1414,39 +1414,95 @@ function getNaverFallbackTrends(): any[] {
   }));
 }
 
-// 다음 트렌드 스크래핑
+// 다음 트렌드 스크래핑 (다음 뉴스 헤드라인 기반)
 async function scrapeDaumTrends(): Promise<any[]> {
   try {
-    const response = await axios.get('https://search.daum.net/search?w=tot&DA=YZR&t__nil_searchbox=btn&sug=&sugo=&sq=&o=&q=%EC%8B%A4%EC%8B%9C%EA%B0%84', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-      timeout: 5000,
+    // 다음 뉴스 메인에서 주요 뉴스 헤드라인 추출
+    const response = await axios.get('https://news.daum.net/', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+      },
+      timeout: 8000,
     });
 
     const $ = cheerio.load(response.data);
     const trends: any[] = [];
+    const seenKeywords = new Set<string>();
 
-    // 다음 실시간 검색어 파싱
-    $('[class*="keyword"]').each((i, el) => {
-      const keyword = $(el).text().trim();
-      if (keyword && keyword.length > 1 && keyword.length < 30) {
+    // 뉴스 헤드라인에서 키워드 추출
+    $('a[class*="link_txt"], a[class*="link_news"], .txt_thumb, .tit_thumb, .item_issue a, .link_issue').each((i, el) => {
+      const text = $(el).text().trim();
+      // 키워드 추출 (2-15자, 중복 제거)
+      const keyword = extractKeywordFromHeadline(text);
+      if (keyword && keyword.length >= 2 && keyword.length <= 20 && !seenKeywords.has(keyword)) {
+        seenKeywords.add(keyword);
         trends.push({
           keyword,
           platform: "daum",
-          rank: i + 1,
-          source: "realtime_search"
+          rank: trends.length + 1,
+          category: categorizeKeyword(keyword),
+          source: "daum_news_headlines"
         });
       }
     });
+
+    // 충분한 트렌드를 못 찾으면 다음 검색 인기어 시도
+    if (trends.length < 5) {
+      const searchResponse = await axios.get('https://search.daum.net/search?w=tot&q=인기검색어', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+        timeout: 5000,
+      });
+      const $search = cheerio.load(searchResponse.data);
+
+      $search('.link_txt, .keyword_item a, .item_suggest a').each((i, el) => {
+        const text = $search(el).text().trim();
+        if (text && text.length >= 2 && text.length <= 20 && !seenKeywords.has(text)) {
+          seenKeywords.add(text);
+          trends.push({
+            keyword: text,
+            platform: "daum",
+            rank: trends.length + 1,
+            category: categorizeKeyword(text),
+            source: "daum_popular_search"
+          });
+        }
+      });
+    }
 
     if (trends.length === 0) {
       return getDaumFallbackTrends();
     }
 
-    setCachedTrends("daum", trends, "realtime_scraping");
+    setCachedTrends("daum", trends.slice(0, 10), "daum_news_headlines");
     return trends.slice(0, 10);
   } catch {
     return getDaumFallbackTrends();
   }
+}
+
+// 뉴스 헤드라인에서 핵심 키워드 추출
+function extractKeywordFromHeadline(headline: string): string {
+  if (!headline || headline.length < 3) return '';
+
+  // 특수문자, 따옴표 제거
+  let clean = headline.replace(/["""''`]/g, '').replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim();
+
+  // 너무 긴 문장은 앞부분만
+  if (clean.length > 20) {
+    // 첫 번째 조사/어미 전까지 추출
+    const match = clean.match(/^(.{4,20}?)(?:이|가|을|를|에|은|는|의|로|로|와|과|에서|부터|까지|\s)/);
+    if (match) {
+      clean = match[1];
+    } else {
+      clean = clean.substring(0, 15);
+    }
+  }
+
+  // 일반적인 뉴스 표현 제거
+  clean = clean.replace(/^(속보|단독|긴급|브리핑|종합|UPDATE|BREAKING|오늘의)\s*/i, '');
+
+  return clean.trim();
 }
 
 function getDaumFallbackTrends(): any[] {
