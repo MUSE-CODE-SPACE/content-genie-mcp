@@ -4432,15 +4432,15 @@ async function main() {
     // HTTP/SSE 모드 (PlayMCP, 웹 클라이언트용)
     console.log(`Starting Content Genie MCP Server v2.9.0 in HTTP mode on port ${port}...`);
 
-    const httpTransport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    });
+    // 세션별 transport 저장소
+    const transports = new Map<string, StreamableHTTPServerTransport>();
 
     const httpServer = createServer(async (req, res) => {
       // CORS 헤더
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, Mcp-Session-Id, Accept');
+      res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -4463,15 +4463,48 @@ async function main() {
 
       // MCP 요청 처리
       if (req.url === '/mcp' || req.url === '/sse') {
-        await httpTransport.handleRequest(req, res);
+        // 세션 ID 확인
+        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+        if (sessionId && transports.has(sessionId)) {
+          // 기존 세션 사용
+          const transport = transports.get(sessionId)!;
+          await transport.handleRequest(req, res);
+        } else {
+          // 새 세션 생성
+          const newTransport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          });
+
+          // 새 서버 인스턴스 생성 및 연결
+          const sessionServer = new McpServer({
+            name: "content-genie-mcp",
+            version: "2.9.1",
+          });
+
+          // 모든 도구 재등록 (기존 server와 동일한 도구들)
+          // 간단한 방법: 새 transport를 기존 server에 연결
+          await server.connect(newTransport);
+
+          // 세션 저장
+          newTransport.sessionId && transports.set(newTransport.sessionId, newTransport);
+
+          // 요청 처리
+          await newTransport.handleRequest(req, res);
+
+          // 세션 종료 시 정리
+          newTransport.onclose = () => {
+            if (newTransport.sessionId) {
+              transports.delete(newTransport.sessionId);
+            }
+          };
+        }
         return;
       }
 
       res.writeHead(404);
       res.end('Not Found');
     });
-
-    await server.connect(httpTransport);
 
     httpServer.listen(port, () => {
       console.log(`Content Genie MCP Server v2.9.0 running on HTTP port ${port}`);
