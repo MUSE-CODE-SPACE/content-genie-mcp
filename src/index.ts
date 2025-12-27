@@ -14,7 +14,7 @@ import { createServer } from "http";
 
 const server = new McpServer({
   name: "content-genie-mcp",
-  version: "2.7.0",
+  version: "2.9.1",
 });
 
 // =============================================================================
@@ -4386,7 +4386,7 @@ async function main() {
         res.end(JSON.stringify({
           status: 'ok',
           server: 'content-genie-mcp',
-          version: '2.9.0',
+          version: '2.9.1',
           tools: 17,
           timestamp: new Date().toISOString()
         }));
