@@ -4372,7 +4372,7 @@ async function main() {
       // CORS 헤더
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, Mcp-Session-Id, Accept');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
