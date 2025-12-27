@@ -2,11 +2,13 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { createServer } from "http";
+import express, { Request, Response } from "express";
+import cors from "cors";
+import crypto from "crypto";
 
 // =============================================================================
 // Content Genie MCP v2.5 - 한국 콘텐츠 크리에이터를 위한 AI 어시스턴트 (프로 버전)
@@ -4432,84 +4434,76 @@ async function main() {
     // HTTP/SSE 모드 (PlayMCP, 웹 클라이언트용)
     console.log(`Starting Content Genie MCP Server v2.9.0 in HTTP mode on port ${port}...`);
 
-    // 세션별 transport 저장소
-    const transports = new Map<string, StreamableHTTPServerTransport>();
+    const app = express();
+    app.use(cors());
+    app.use(express.json());
 
-    const httpServer = createServer(async (req, res) => {
-      // CORS 헤더
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Id, Mcp-Session-Id, Accept');
-      res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id');
+    // 세션별 transport 저장
+    const transports = new Map<string, SSEServerTransport>();
 
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
+    // Health check
+    app.get('/', (_req: Request, res: Response) => {
+      res.json({
+        status: 'ok',
+        server: 'content-genie-mcp',
+        version: '2.9.1',
+        tools: 17,
+        timestamp: new Date().toISOString()
+      });
+    });
 
-      // Health check
-      if (req.url === '/health' || req.url === '/') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          status: 'ok',
-          server: 'content-genie-mcp',
-          version: '2.9.1',
-          tools: 17,
-          timestamp: new Date().toISOString()
-        }));
-        return;
-      }
+    app.get('/health', (_req: Request, res: Response) => {
+      res.json({
+        status: 'ok',
+        server: 'content-genie-mcp',
+        version: '2.9.1',
+        tools: 17,
+        timestamp: new Date().toISOString()
+      });
+    });
 
-      // MCP 요청 처리
-      if (req.url === '/mcp' || req.url === '/sse') {
-        // 세션 ID 확인
-        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    // SSE endpoint for MCP connection
+    app.get('/sse', async (_req: Request, res: Response) => {
+      console.log('New SSE connection established');
 
-        if (sessionId && transports.has(sessionId)) {
-          // 기존 세션 사용
-          const transport = transports.get(sessionId)!;
-          await transport.handleRequest(req, res);
+      const transport = new SSEServerTransport('/message', res);
+      const sessionId = crypto.randomUUID();
+      transports.set(sessionId, transport);
+
+      res.on('close', () => {
+        console.log('SSE connection closed');
+        transports.delete(sessionId);
+      });
+
+      await server.connect(transport);
+    });
+
+    // Message endpoint for MCP communication
+    app.post('/message', async (req: Request, res: Response) => {
+      const sessionId = req.query.sessionId as string;
+
+      if (!sessionId) {
+        const transport = Array.from(transports.values())[0];
+        if (transport) {
+          await transport.handlePostMessage(req, res);
         } else {
-          // 새 세션 생성
-          const newTransport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          });
-
-          // 새 서버 인스턴스 생성 및 연결
-          const sessionServer = new McpServer({
-            name: "content-genie-mcp",
-            version: "2.9.1",
-          });
-
-          // 모든 도구 재등록 (기존 server와 동일한 도구들)
-          // 간단한 방법: 새 transport를 기존 server에 연결
-          await server.connect(newTransport);
-
-          // 세션 저장
-          newTransport.sessionId && transports.set(newTransport.sessionId, newTransport);
-
-          // 요청 처리
-          await newTransport.handleRequest(req, res);
-
-          // 세션 종료 시 정리
-          newTransport.onclose = () => {
-            if (newTransport.sessionId) {
-              transports.delete(newTransport.sessionId);
-            }
-          };
+          res.status(400).json({ error: 'No active session' });
         }
         return;
       }
 
-      res.writeHead(404);
-      res.end('Not Found');
+      const transport = transports.get(sessionId);
+      if (transport) {
+        await transport.handlePostMessage(req, res);
+      } else {
+        res.status(404).json({ error: 'Session not found' });
+      }
     });
 
-    httpServer.listen(port, () => {
+    app.listen(port, () => {
       console.log(`Content Genie MCP Server v2.9.0 running on HTTP port ${port}`);
       console.log(`Health check: http://localhost:${port}/health`);
-      console.log(`MCP endpoint: http://localhost:${port}/mcp`);
+      console.log(`SSE endpoint: http://localhost:${port}/sse`);
     });
   } else {
     // stdio 모드 (Claude Desktop, Claude Code용)
