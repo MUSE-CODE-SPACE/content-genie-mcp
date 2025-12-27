@@ -2,12 +2,18 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# 모든 파일 복사 먼저 (prepare 스크립트 실행을 위해)
-COPY package*.json tsconfig.json ./
+# package.json과 tsconfig.json 복사
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# 의존성 설치 (prepare 스크립트 무시)
+RUN npm ci --ignore-scripts
+
+# 소스 코드 복사
 COPY src/ ./src/
 
-# 모든 의존성 설치 (npm ci가 prepare 스크립트 실행하여 빌드도 함께)
-RUN npm ci
+# 빌드 실행
+RUN npm run build
 
 # 프로덕션 의존성만 남기기
 RUN npm prune --production
