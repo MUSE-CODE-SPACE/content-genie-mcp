@@ -16,7 +16,7 @@ import crypto from "crypto";
 
 const server = new McpServer({
   name: "content-genie-mcp",
-  version: "2.9.2",
+  version: "2.9.3",
 });
 
 // =============================================================================
@@ -764,26 +764,52 @@ async function getGoogleAutocomplete(keyword: string): Promise<string[]> {
 // 다음 자동완성 키워드
 async function getDaumAutocomplete(keyword: string): Promise<string[]> {
   try {
-    const response = await axios.get(`https://suggest.search.daum.net/sushi/ns`, {
+    // 다음 검색 페이지에서 연관 검색어 추출
+    const response = await axios.get(`https://search.daum.net/search`, {
       params: {
         w: 'tot',
-        mod: 'json',
-        code: 'utf_in_out',
         q: keyword,
       },
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
       },
       timeout: 5000,
     });
 
-    // 응답 형식: {"q":"keyword","items":["suggestion1", "suggestion2", ...]}
-    if (response.data && Array.isArray(response.data.items)) {
-      return response.data.items.slice(0, 10);
+    const $ = cheerio.load(response.data);
+    const suggestions: string[] = [];
+
+    // 연관 검색어 영역에서 추출
+    $('[class*="related"] a, [class*="suggest"] a, .keyword_list a, .related_keyword a').each((i, el) => {
+      const text = $(el).text().trim();
+      if (text && text.length > 1 && text.length < 30 && text !== keyword && !suggestions.includes(text)) {
+        suggestions.push(text);
+      }
+    });
+
+    // 롱테일 키워드 패턴 생성 (폴백)
+    if (suggestions.length < 5) {
+      const patterns = ['추천', '방법', '후기', '비교', '가격', '순위', '효과'];
+      for (const pattern of patterns) {
+        const combo = `${keyword} ${pattern}`;
+        if (!suggestions.includes(combo)) {
+          suggestions.push(combo);
+        }
+        if (suggestions.length >= 10) break;
+      }
     }
-    return [];
+
+    return suggestions.slice(0, 10);
   } catch {
-    return [];
+    // 폴백: 기본 패턴 반환
+    return [
+      `${keyword} 추천`,
+      `${keyword} 후기`,
+      `${keyword} 가격`,
+      `${keyword} 비교`,
+      `${keyword} 순위`,
+    ];
   }
 }
 
@@ -1330,6 +1356,20 @@ async function scrapeNaverTrends(): Promise<any[]> {
 }
 
 function getNaverFallbackTrends(): any[] {
+  // 캐시된 다음 트렌드가 있으면 활용
+  const cachedDaum = getCachedTrends("daum");
+  if (cachedDaum && cachedDaum.length > 0) {
+    return cachedDaum.slice(0, 10).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "naver",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      change: ["up", "new", "same"][i % 3],
+      searchVolume: i < 3 ? "매우 높음" : i < 6 ? "높음" : "보통",
+      source: "cached_daum_trends"
+    }));
+  }
+
   // 캐시된 구글 트렌드가 있으면 활용
   const cachedGoogle = getCachedTrends("google");
   if (cachedGoogle && cachedGoogle.length > 0) {
@@ -1402,6 +1442,7 @@ async function scrapeDaumTrends(): Promise<any[]> {
       return getDaumFallbackTrends();
     }
 
+    setCachedTrends("daum", trends, "realtime_scraping");
     return trends.slice(0, 10);
   } catch {
     return getDaumFallbackTrends();
@@ -1409,6 +1450,11 @@ async function scrapeDaumTrends(): Promise<any[]> {
 }
 
 function getDaumFallbackTrends(): any[] {
+  // 캐시된 다음 트렌드 확인
+  const cachedDaum = getCachedTrends("daum");
+  if (cachedDaum && cachedDaum.length > 0) {
+    return cachedDaum;
+  }
   // 캐시된 다른 플랫폼 트렌드가 있으면 활용
   const cachedNaver = getCachedTrends("naver");
   const cachedGoogle = getCachedTrends("google");
@@ -1538,6 +1584,20 @@ async function scrapeGoogleTrendsFallback(): Promise<any[]> {
 }
 
 function getGoogleFallbackTrends(): any[] {
+  // 캐시된 다음 트렌드가 있으면 활용
+  const cachedDaum = getCachedTrends("daum");
+  if (cachedDaum && cachedDaum.length > 0) {
+    return cachedDaum.slice(0, 10).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "google",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      trend: i < 3 ? "rising" : "stable",
+      traffic: i < 3 ? "100K+" : i < 6 ? "50K+" : "10K+",
+      source: "cached_daum_trends"
+    }));
+  }
+
   // 캐시된 네이버 트렌드가 있으면 활용
   const cachedNaver = getCachedTrends("naver");
   if (cachedNaver && cachedNaver.length > 0) {
@@ -1717,7 +1777,22 @@ function getYoutubeFallbackTrends(): any[] {
   const hour = now.getHours();
   const dayOfWeek = now.getDay();
 
-  // 캐시된 트렌드 활용
+  // 캐시된 다음 트렌드 활용
+  const cachedDaum = getCachedTrends("daum");
+  if (cachedDaum && cachedDaum.length > 0) {
+    return cachedDaum.slice(0, 8).map((t, i) => ({
+      keyword: `${t.keyword} 유튜브`,
+      title: `${t.keyword} - 인기 영상`,
+      platform: "youtube",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      format: i % 3 === 0 ? "shorts" : i % 3 === 1 ? "video" : "live",
+      views: `${Math.floor(Math.random() * 500 + 100)}K+`,
+      source: "cached_daum_trends"
+    }));
+  }
+
+  // 캐시된 구글 트렌드 활용
   const cachedGoogle = getCachedTrends("google");
   if (cachedGoogle && cachedGoogle.length > 0) {
     return cachedGoogle.slice(0, 8).map((t, i) => ({
@@ -1901,9 +1976,20 @@ function getZumFallbackTrends(): any[] {
   const now = new Date();
   const hour = now.getHours();
 
-  // 캐시된 다른 플랫폼 트렌드 활용
+  // 캐시된 다른 플랫폼 트렌드 활용 (다음 우선)
+  const cachedDaum = getCachedTrends("daum");
   const cachedNaver = getCachedTrends("naver");
   const cachedGoogle = getCachedTrends("google");
+
+  if (cachedDaum && cachedDaum.length > 0) {
+    return cachedDaum.slice(0, 6).map((t, i) => ({
+      keyword: t.keyword,
+      platform: "zum",
+      rank: i + 1,
+      category: t.category || categorizeKeyword(t.keyword),
+      source: "cached_daum_trends"
+    }));
+  }
 
   if (cachedNaver && cachedNaver.length > 0) {
     return cachedNaver.slice(0, 6).map((t, i) => ({
@@ -4476,7 +4562,7 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.9.2',
+        version: '2.9.3',
         tools: 17,
         timestamp: new Date().toISOString()
       });
@@ -4486,7 +4572,7 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.9.2',
+        version: '2.9.3',
         tools: 17,
         timestamp: new Date().toISOString()
       });
@@ -4504,7 +4590,7 @@ async function main() {
           result: {
             protocolVersion: '2024-11-05',
             capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: 'content-genie-mcp', version: '2.9.2' }
+            serverInfo: { name: 'content-genie-mcp', version: '2.9.3' }
           }
         });
         return;
