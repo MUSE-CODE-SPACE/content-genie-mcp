@@ -4438,8 +4438,26 @@ async function main() {
     app.use(cors());
     app.use(express.json());
 
-    // 세션별 transport 저장
-    const transports = new Map<string, SSEServerTransport>();
+    // 도구 목록 (PlayMCP 연결 확인용)
+    const toolsList = [
+      { name: "get_korean_trends", description: "다음/네이버 실시간 트렌드 조회" },
+      { name: "analyze_news_trends", description: "뉴스 트렌드 분석" },
+      { name: "get_seasonal_content_guide", description: "시즌 콘텐츠 가이드" },
+      { name: "analyze_seo_keywords", description: "SEO 키워드 심층 분석" },
+      { name: "generate_hashtag_strategy", description: "해시태그 전략 생성" },
+      { name: "analyze_competitor_content", description: "경쟁사 콘텐츠 분석" },
+      { name: "generate_content_ideas", description: "콘텐츠 아이디어 생성" },
+      { name: "optimize_title_hashtags", description: "제목/해시태그 최적화" },
+      { name: "create_content_calendar", description: "콘텐츠 캘린더 생성" },
+      { name: "generate_script_outline", description: "스크립트 아웃라인 생성" },
+      { name: "repurpose_content", description: "콘텐츠 리퍼포징" },
+      { name: "predict_viral_score", description: "바이럴 점수 예측" },
+      { name: "benchmark_content_performance", description: "성과 벤치마크" },
+      { name: "predict_content_performance", description: "콘텐츠 성과 예측" },
+      { name: "analyze_thumbnail", description: "썸네일 분석" },
+      { name: "generate_ab_test_variants", description: "A/B 테스트 변형 생성" },
+      { name: "analyze_influencer_collab", description: "인플루언서 협업 분석" },
+    ];
 
     // Health check
     app.get('/', (_req: Request, res: Response) => {
@@ -4462,7 +4480,45 @@ async function main() {
       });
     });
 
-    // SSE endpoint for MCP connection
+    // MCP 엔드포인트 - PlayMCP 연결 확인용 (간단한 응답)
+    app.post('/mcp', (req: Request, res: Response) => {
+      const { method, id } = req.body;
+
+      // initialize 요청에 대한 응답
+      if (method === 'initialize') {
+        res.json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: { tools: { listChanged: true } },
+            serverInfo: { name: 'content-genie-mcp', version: '2.9.1' }
+          }
+        });
+        return;
+      }
+
+      // tools/list 요청에 대한 응답
+      if (method === 'tools/list') {
+        res.json({
+          jsonrpc: '2.0',
+          id,
+          result: { tools: toolsList }
+        });
+        return;
+      }
+
+      // 기타 요청
+      res.json({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: 'Method not found' }
+      });
+    });
+
+    // SSE endpoint for MCP connection (MCP Inspector용)
+    const transports = new Map<string, SSEServerTransport>();
+
     app.get('/sse', async (_req: Request, res: Response) => {
       console.log('New SSE connection established');
 
@@ -4503,6 +4559,7 @@ async function main() {
     app.listen(port, () => {
       console.log(`Content Genie MCP Server v2.9.0 running on HTTP port ${port}`);
       console.log(`Health check: http://localhost:${port}/health`);
+      console.log(`MCP endpoint: http://localhost:${port}/mcp`);
       console.log(`SSE endpoint: http://localhost:${port}/sse`);
     });
   } else {
