@@ -439,7 +439,7 @@ server.tool(
     include_longtail: z.boolean().optional().describe("롱테일 키워드 포함"),
     competitor_analysis: z.boolean().optional().describe("경쟁 분석 포함"),
   },
-  async ({ keyword, search_engine = "both", include_questions = true, include_longtail = true, competitor_analysis = true }) => {
+  async ({ keyword, search_engine = "all", include_questions = true, include_longtail = true, competitor_analysis = true }) => {
     try {
       const analysis = await analyzeAdvancedSEOKeywords(keyword, search_engine, include_questions, include_longtail, competitor_analysis);
 
@@ -2495,6 +2495,18 @@ async function analyzeAdvancedSEOKeywords(
       ],
       content_types: ["웹사이트", "유튜브", "뉴스"],
     },
+    daum: {
+      result_count: daumResultCount.toLocaleString(),
+      competition: estimateCompetition(daumResultCount).level,
+      tips: [
+        "다음 블로그/카페에 발행하세요",
+        "카카오 채널과 연동 고려",
+        "티스토리 블로그 활용 추천",
+        "다음 뉴스 검색 노출 전략",
+        "카카오톡 공유 최적화",
+      ],
+      content_types: ["티스토리", "다음카페", "브런치"],
+    },
   };
 
   // 추천 액션 생성
@@ -2528,7 +2540,7 @@ async function analyzeAdvancedSEOKeywords(
     related_keywords: relatedKeywords.slice(0, 15),
     question_keywords: questionKeywords.slice(0, 8),
     longtail_keywords: longtailKeywords.slice(0, 8),
-    search_engine_strategy: searchEngine === "both" ? searchEngineStrategy : searchEngineStrategy[searchEngine as keyof typeof searchEngineStrategy],
+    search_engine_strategy: searchEngine === "all" ? searchEngineStrategy : searchEngineStrategy[searchEngine as keyof typeof searchEngineStrategy],
     content_recommendations: {
       ideal_length: seoDifficulty > 60 ? "4000-6000자 (경쟁 대응)" : "2500-4000자",
       must_include: ["정의", "방법", "예시", "FAQ", "비교"],
