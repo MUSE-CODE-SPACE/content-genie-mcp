@@ -429,10 +429,10 @@ server.tool(
 
 server.tool(
   "analyze_seo_keywords",
-  "키워드의 SEO 잠재력을 심층 분석하고 네이버/구글 최적화 전략을 제공합니다.",
+  "키워드의 SEO 잠재력을 심층 분석하고 다음/네이버/구글 최적화 전략을 제공합니다.",
   {
     keyword: z.string().describe("분석할 메인 키워드"),
-    search_engine: z.enum(["naver", "google", "both"]).optional().describe("검색엔진 (naver, google, both)"),
+    search_engine: z.enum(["daum", "naver", "google", "all"]).optional().describe("검색엔진 (daum, naver, google, all)"),
     include_questions: z.boolean().optional().describe("관련 질문 키워드 포함"),
     include_longtail: z.boolean().optional().describe("롱테일 키워드 포함"),
     competitor_analysis: z.boolean().optional().describe("경쟁 분석 포함"),
@@ -759,6 +759,32 @@ async function getGoogleAutocomplete(keyword: string): Promise<string[]> {
   }
 }
 
+// 다음 자동완성 키워드
+async function getDaumAutocomplete(keyword: string): Promise<string[]> {
+  try {
+    const response = await axios.get(`https://suggest.search.daum.net/sushi/ns`, {
+      params: {
+        w: 'tot',
+        mod: 'json',
+        code: 'utf_in_out',
+        q: keyword,
+      },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+      timeout: 5000,
+    });
+
+    // 응답 형식: {"q":"keyword","items":["suggestion1", "suggestion2", ...]}
+    if (response.data && Array.isArray(response.data.items)) {
+      return response.data.items.slice(0, 10);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 // 네이버 연관검색어 스크래핑
 async function getNaverRelatedKeywords(keyword: string): Promise<any[]> {
   try {
@@ -852,6 +878,37 @@ async function getGoogleSearchResultCount(keyword: string): Promise<number> {
     return 100000; // 기본값
   } catch {
     return 100000;
+  }
+}
+
+// 다음 검색 결과 수 추정
+async function getDaumSearchResultCount(keyword: string): Promise<number> {
+  try {
+    const response = await axios.get(`https://search.daum.net/search`, {
+      params: {
+        w: 'blog',
+        q: keyword,
+      },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+      timeout: 5000,
+    });
+
+    const $ = cheerio.load(response.data);
+
+    // 검색 결과 수 추출 시도
+    const countText = $('.sub_expander .txt_info, .cont_result .txt_info, [class*="count"]').first().text();
+    const match = countText.match(/[\d,]+/);
+    if (match) {
+      return parseInt(match[0].replace(/,/g, ''), 10);
+    }
+
+    // 대략적 추정: 검색 결과 아이템 수 기반
+    const itemCount = $('.wrap_cont.blog, .cont_blog').length;
+    return itemCount > 0 ? itemCount * 10000 : 50000;
+  } catch {
+    return 50000; // 기본값
   }
 }
 
@@ -2250,28 +2307,37 @@ async function analyzeAdvancedSEOKeywords(
   competitorAnalysis: boolean
 ): Promise<any> {
   // 병렬로 실시간 데이터 수집
+  const includeNaver = searchEngine === 'naver' || searchEngine === 'all';
+  const includeGoogle = searchEngine === 'google' || searchEngine === 'all';
+  const includeDaum = searchEngine === 'daum' || searchEngine === 'all';
+
   const [
     naverAutocomplete,
     googleAutocomplete,
+    daumAutocomplete,
     naverRelated,
     naverResultCount,
-    googleResultCount
+    googleResultCount,
+    daumResultCount
   ] = await Promise.all([
-    searchEngine !== 'google' ? getNaverAutocomplete(keyword) : Promise.resolve([]),
-    searchEngine !== 'naver' ? getGoogleAutocomplete(keyword) : Promise.resolve([]),
+    includeNaver ? getNaverAutocomplete(keyword) : Promise.resolve([]),
+    includeGoogle ? getGoogleAutocomplete(keyword) : Promise.resolve([]),
+    includeDaum ? getDaumAutocomplete(keyword) : Promise.resolve([]),
     getNaverRelatedKeywords(keyword),
-    searchEngine !== 'google' ? getNaverSearchResultCount(keyword) : Promise.resolve(0),
-    searchEngine !== 'naver' ? getGoogleSearchResultCount(keyword) : Promise.resolve(0),
+    includeNaver ? getNaverSearchResultCount(keyword) : Promise.resolve(0),
+    includeGoogle ? getGoogleSearchResultCount(keyword) : Promise.resolve(0),
+    includeDaum ? getDaumSearchResultCount(keyword) : Promise.resolve(0),
   ]);
 
   // 주요 검색 엔진 결과 수 선택
   const primaryResultCount = searchEngine === 'naver' ? naverResultCount :
                              searchEngine === 'google' ? googleResultCount :
-                             Math.max(naverResultCount, googleResultCount);
+                             searchEngine === 'daum' ? daumResultCount :
+                             Math.max(naverResultCount, googleResultCount, daumResultCount);
 
   // 경쟁도 및 검색량 추정
   const competition = estimateCompetition(primaryResultCount);
-  const autocompleteKeywords = [...new Set([...naverAutocomplete, ...googleAutocomplete])];
+  const autocompleteKeywords = [...new Set([...daumAutocomplete, ...naverAutocomplete, ...googleAutocomplete])];
   const keywordRank = autocompleteKeywords.findIndex(k => k.includes(keyword)) + 1 || 10;
   const searchVolume = estimateSearchVolume(keywordRank, primaryResultCount);
 
@@ -2439,9 +2505,11 @@ async function analyzeAdvancedSEOKeywords(
   return {
     main_keyword: keyword,
     data_source: {
+      daum_autocomplete: daumAutocomplete.length,
       naver_autocomplete: naverAutocomplete.length,
       google_autocomplete: googleAutocomplete.length,
       naver_related: naverRelated.length,
+      daum_results: daumResultCount.toLocaleString(),
       naver_results: naverResultCount.toLocaleString(),
       google_results: googleResultCount.toLocaleString(),
     },
