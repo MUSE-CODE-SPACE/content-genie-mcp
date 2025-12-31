@@ -2,13 +2,13 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { z } from "zod";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import express, { Request, Response } from "express";
 import cors from "cors";
-import crypto from "crypto";
 
 // =============================================================================
 // Content Genie MCP v2.5 - 한국 콘텐츠 크리에이터를 위한 AI 어시스턴트 (프로 버전)
@@ -16,7 +16,7 @@ import crypto from "crypto";
 
 const server = new McpServer({
   name: "content-genie-mcp",
-  version: "2.9.4",
+  version: "2.10.0",
 });
 
 // =============================================================================
@@ -4583,42 +4583,50 @@ function predictContentPerformance(title: string, description: string, platform:
 async function main() {
   const isHttpMode = process.env.MCP_HTTP_MODE === 'true' || process.argv.includes('--http');
   const port = parseInt(process.env.PORT || '3000', 10);
+  const host = process.env.HOST || '0.0.0.0';
 
   if (isHttpMode) {
-    // HTTP/SSE 모드 (PlayMCP, 웹 클라이언트용)
-    console.log(`Starting Content Genie MCP Server v2.9.0 in HTTP mode on port ${port}...`);
+    // ==========================================================================
+    // Streamable HTTP 모드 (MCP 2025-03-26 스펙 준수)
+    // - 단일 /mcp 엔드포인트 (POST + GET)
+    // - Stateless 모드 (세션 없음)
+    // - DNS rebinding 보호
+    // ==========================================================================
+    console.log(`Starting Content Genie MCP Server v2.10.0 in Streamable HTTP mode...`);
 
-    const app = express();
-    app.use(cors());
+    // createMcpExpressApp은 localhost 바인딩 시 DNS rebinding 보호 자동 적용
+    // Remote 서버의 경우 0.0.0.0 바인딩하므로 별도 설정
+    const app = host === '127.0.0.1' || host === 'localhost'
+      ? createMcpExpressApp({ host })
+      : express();
+
+    // CORS 설정 (Remote MCP 서버용)
+    app.use(cors({
+      origin: true,
+      credentials: true,
+      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Accept', 'Mcp-Session-Id', 'Last-Event-ID'],
+      exposedHeaders: ['Mcp-Session-Id']
+    }));
+
     app.use(express.json());
 
-    // 도구 목록 (PlayMCP 연결 확인용)
-    const toolsList = [
-      { name: "get_korean_trends", description: "다음/네이버 실시간 트렌드 조회" },
-      { name: "analyze_news_trends", description: "뉴스 트렌드 분석" },
-      { name: "get_seasonal_content_guide", description: "시즌 콘텐츠 가이드" },
-      { name: "analyze_seo_keywords", description: "SEO 키워드 심층 분석" },
-      { name: "generate_hashtag_strategy", description: "해시태그 전략 생성" },
-      { name: "analyze_competitor_content", description: "경쟁사 콘텐츠 분석" },
-      { name: "generate_content_ideas", description: "콘텐츠 아이디어 생성" },
-      { name: "optimize_title_hashtags", description: "제목/해시태그 최적화" },
-      { name: "create_content_calendar", description: "콘텐츠 캘린더 생성" },
-      { name: "generate_script_outline", description: "스크립트 아웃라인 생성" },
-      { name: "repurpose_content", description: "콘텐츠 리퍼포징" },
-      { name: "predict_viral_score", description: "바이럴 점수 예측" },
-      { name: "benchmark_content_performance", description: "성과 벤치마크" },
-      { name: "predict_content_performance", description: "콘텐츠 성과 예측" },
-      { name: "analyze_thumbnail", description: "썸네일 분석" },
-      { name: "generate_ab_test_variants", description: "A/B 테스트 변형 생성" },
-      { name: "analyze_influencer_collab", description: "인플루언서 협업 분석" },
-    ];
+    // Streamable HTTP Transport (Stateless 모드)
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,  // Stateless: 세션 ID 생성 안 함
+    });
 
-    // Health check
+    // MCP 서버와 transport 연결
+    await server.connect(transport);
+
+    // Health check 엔드포인트
     app.get('/', (_req: Request, res: Response) => {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.9.4',
+        version: '2.10.0',
+        protocol: '2025-03-26',
+        transport: 'streamable-http',
         tools: 17,
         timestamp: new Date().toISOString()
       });
@@ -4628,99 +4636,49 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.9.4',
+        version: '2.10.0',
+        protocol: '2025-03-26',
+        transport: 'streamable-http',
         tools: 17,
         timestamp: new Date().toISOString()
       });
     });
 
-    // MCP 엔드포인트 - PlayMCP 연결 확인용 (간단한 응답)
-    app.post('/mcp', (req: Request, res: Response) => {
-      const { method, id } = req.body;
-
-      // initialize 요청에 대한 응답
-      if (method === 'initialize') {
-        res.json({
-          jsonrpc: '2.0',
-          id,
-          result: {
-            protocolVersion: '2024-11-05',
-            capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: 'content-genie-mcp', version: '2.9.3' }
-          }
-        });
-        return;
-      }
-
-      // tools/list 요청에 대한 응답
-      if (method === 'tools/list') {
-        res.json({
-          jsonrpc: '2.0',
-          id,
-          result: { tools: toolsList }
-        });
-        return;
-      }
-
-      // 기타 요청
-      res.json({
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32601, message: 'Method not found' }
-      });
-    });
-
-    // SSE endpoint for MCP connection (MCP Inspector용)
-    const transports = new Map<string, SSEServerTransport>();
-
-    app.get('/sse', async (_req: Request, res: Response) => {
-      console.log('New SSE connection established');
-
-      const transport = new SSEServerTransport('/message', res);
-      const sessionId = crypto.randomUUID();
-      transports.set(sessionId, transport);
-
-      res.on('close', () => {
-        console.log('SSE connection closed');
-        transports.delete(sessionId);
-      });
-
-      await server.connect(transport);
-    });
-
-    // Message endpoint for MCP communication
-    app.post('/message', async (req: Request, res: Response) => {
-      const sessionId = req.query.sessionId as string;
-
-      if (!sessionId) {
-        const transport = Array.from(transports.values())[0];
-        if (transport) {
-          await transport.handlePostMessage(req, res);
-        } else {
-          res.status(400).json({ error: 'No active session' });
+    // ==========================================================================
+    // 단일 MCP 엔드포인트 (Streamable HTTP 스펙)
+    // - POST: 클라이언트 → 서버 메시지 (요청, 응답, 알림)
+    // - GET: 서버 → 클라이언트 SSE 스트림 (서버 initiated 메시지)
+    // - DELETE: 세션 종료 (Stateless에서는 사용 안 함)
+    // ==========================================================================
+    app.all('/mcp', async (req: Request, res: Response) => {
+      try {
+        await transport.handleRequest(req, res, req.body);
+      } catch (error) {
+        console.error('MCP request error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: 'Internal server error'
+            }
+          });
         }
-        return;
-      }
-
-      const transport = transports.get(sessionId);
-      if (transport) {
-        await transport.handlePostMessage(req, res);
-      } else {
-        res.status(404).json({ error: 'Session not found' });
       }
     });
 
-    app.listen(port, () => {
-      console.log(`Content Genie MCP Server v2.9.0 running on HTTP port ${port}`);
-      console.log(`Health check: http://localhost:${port}/health`);
-      console.log(`MCP endpoint: http://localhost:${port}/mcp`);
-      console.log(`SSE endpoint: http://localhost:${port}/sse`);
+    app.listen(port, host, () => {
+      console.log(`Content Genie MCP Server v2.10.0 running on http://${host}:${port}`);
+      console.log(`Protocol: MCP 2025-03-26 (Streamable HTTP)`);
+      console.log(`Mode: Stateless (no session)`);
+      console.log(`Health check: http://${host}:${port}/health`);
+      console.log(`MCP endpoint: http://${host}:${port}/mcp`);
     });
   } else {
     // stdio 모드 (Claude Desktop, Claude Code용)
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Content Genie MCP Server v2.9.0 running on stdio");
+    console.error("Content Genie MCP Server v2.10.0 running on stdio");
   }
 }
 
