@@ -72,6 +72,46 @@ Add to `claude_desktop_config.json`:
 claude mcp add content-genie-mcp -- npx -y content-genie-mcp
 ```
 
+#### Remote MCP Server (Streamable HTTP)
+
+Content Genie MCP supports **MCP 2025-03-26 Streamable HTTP** transport for remote server deployment.
+
+```bash
+# Start server in HTTP mode
+MCP_HTTP_MODE=true npx content-genie-mcp
+
+# With custom host and port
+HOST=0.0.0.0 PORT=3000 MCP_HTTP_MODE=true npx content-genie-mcp
+```
+
+**Endpoints:**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Server info |
+| GET | `/health` | Health check |
+| POST | `/mcp` | MCP JSON-RPC requests |
+| GET | `/mcp` | SSE stream for server messages |
+
+**Example Request:**
+```bash
+# Initialize
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+
+# List tools
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
+**Docker Deployment:**
+```bash
+docker build -t content-genie-mcp .
+docker run -p 3000:3000 -e MCP_HTTP_MODE=true content-genie-mcp
+```
+
 ### Example Usage
 
 ```
@@ -153,6 +193,46 @@ Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위�
 
 ```bash
 claude mcp add content-genie-mcp -- npx -y content-genie-mcp
+```
+
+#### Remote MCP 서버 (Streamable HTTP)
+
+Content Genie MCP는 원격 서버 배포를 위한 **MCP 2025-03-26 Streamable HTTP** 전송을 지원합니다.
+
+```bash
+# HTTP 모드로 서버 시작
+MCP_HTTP_MODE=true npx content-genie-mcp
+
+# 커스텀 호스트 및 포트 설정
+HOST=0.0.0.0 PORT=3000 MCP_HTTP_MODE=true npx content-genie-mcp
+```
+
+**엔드포인트:**
+| 메서드 | 엔드포인트 | 설명 |
+|--------|----------|------|
+| GET | `/` | 서버 정보 |
+| GET | `/health` | 헬스 체크 |
+| POST | `/mcp` | MCP JSON-RPC 요청 |
+| GET | `/mcp` | 서버 메시지용 SSE 스트림 |
+
+**요청 예시:**
+```bash
+# 초기화
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+
+# 도구 목록 조회
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
+**Docker 배포:**
+```bash
+docker build -t content-genie-mcp .
+docker run -p 3000:3000 -e MCP_HTTP_MODE=true content-genie-mcp
 ```
 
 ### 사용 예시
