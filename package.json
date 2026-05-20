@@ -2,7 +2,7 @@
   "name": "content-genie-mcp",
   "version": "2.12.0",
   "mcpName": "io.github.MUSE-CODE-SPACE/content-genie",
-  "description": "AI Content Creation Assistant MCP - 한국 콘텐츠 크리에이터를 위한 트렌드 분석 및 콘텐츠 생성 도우미",
+  "description": "AI Content Creation Assistant MCP - \ud55c\uad6d \ucf58\ud150\uce20 \ud06c\ub9ac\uc5d0\uc774\ud130\ub97c \uc704\ud55c \ud2b8\ub80c\ub4dc \ubd84\uc11d \ubc0f \ucf58\ud150\uce20 \uc0dd\uc131 \ub3c4\uc6b0\ubbf8",
   "main": "dist/index.js",
   "bin": "dist/index.js",
   "files": [
@@ -44,7 +44,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",

@@ -1,0 +1,26 @@
+# Local dev / build artifacts
+node_modules
+dist
+coverage
+*.log
+.env
+.env.local
+.env.*.local
+
+# Source control + IDE
+.git
+.gitignore
+.github
+.vscode
+.idea
+.DS_Store
+
+# Tests + docs not needed at runtime
+src/__tests__
+*.test.ts
+*.spec.ts
+jest.config.js
+
+# Repo-local artifacts
+_mcp-research
+MCP_*.md
