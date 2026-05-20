@@ -269,6 +269,79 @@ Claude가 수행:
 
 ---
 
+## Architecture (v2.12.0+)
+
+```
+src/
+├── index.ts                  # entry point: HTTP/stdio bootstrap (~100 LOC)
+├── server.ts                 # McpServer factory + registry wiring
+├── types.ts                  # shared Zod schemas + types
+├── core/
+│   ├── registry.ts           # central tool registry
+│   ├── cache.ts              # LRU + TTL cache (15min, 100 entries)
+│   ├── circuitBreaker.ts     # per-source breaker (3 fails → open 5min)
+│   ├── security.ts           # SSRF guard + fetchWithRetry (Phase 1)
+│   └── errors.ts             # ToolError class (Phase 1)
+├── scrapers/
+│   ├── shared.ts             # runScraper() reliability wrapper
+│   ├── naver.ts              # autocomplete + realtime + blog benchmark
+│   ├── daum.ts               # autocomplete + news headlines
+│   ├── google.ts             # Trends RSS + autocomplete
+│   ├── youtube.ts            # trending video parsing
+│   └── zum.ts                # realtime widget + news
+├── tools/
+│   ├── trends.ts             # get_korean_trends, analyze_news_trends
+│   ├── seo.ts                # analyze_seo_keywords, optimize_title_hashtags, generate_hashtag_strategy
+│   ├── contentIdeas.ts       # generate_content_ideas, generate_script_outline, repurpose_content
+│   ├── viralScoring.ts       # predict_viral_score, generate_ab_test_variants, predict_content_performance, analyze_thumbnail
+│   ├── competitorAnalysis.ts # analyze_competitor_content (SSRF-guarded), benchmark_content_performance, analyze_influencer_collab
+│   └── koreanEvents.ts       # create_content_calendar, get_seasonal_content_guide
+├── data/
+│   └── koreanEvents.ts       # 100+ Korean holiday/event DB
+├── resources.ts              # MCP Resources (korean-events/{year}, sources)
+├── prompts.ts                # MCP Prompts (viral-title, competitor-analysis)
+└── __tests__/                # jest test suite (38 tests across 8 suites)
+```
+
+**Reliability primitives** — every scraper goes through `runScraper()`,
+which:
+
+1. Returns cached fresh data (≤ 15 min) without hitting the network.
+2. Otherwise runs through the per-source circuit breaker.
+3. After 3 consecutive failures, the circuit opens for 5 minutes and
+   subsequent calls short-circuit (no network hit) returning a stale
+   cache entry if any (`status: 'stale'`) or `status: 'unavailable'`.
+4. After 5 minutes the circuit goes half-open and the next call gets
+   one shot to close it.
+
+The `resource://content-genie/sources` resource exposes the live state of
+every scraper's breaker so the LLM can adapt its strategy.
+
+## Contributing
+
+Contributions are welcome! The Phase 4 (v2.12.0) refactor makes the
+codebase friendly for external contributors:
+
+1. **Fork & clone.** Run `npm install`.
+2. **Pick a module.** Each tool lives in `src/tools/<group>.ts`; scrapers
+   in `src/scrapers/<source>.ts`. Adding a new tool = add a new
+   `ToolDefinition` to the relevant module and re-export it.
+3. **Write a test.** Tests live in `src/__tests__/`. Each tool group has
+   at least one happy-path + one error-path test. Tools that hit the
+   network should use `runScraper`/`fetchWithRetry` so they degrade
+   gracefully — and so they can be tested without real HTTP calls.
+4. **Run the verification suite** before pushing:
+   ```bash
+   npm run typecheck
+   npm test
+   npm run build
+   ```
+5. **Open a PR.** GitHub Actions runs `typecheck + test + build` on
+   Node 20 and 22.
+
+Code style: native ESM, strict TypeScript, no external lint config (we
+rely on `tsc`).
+
 ## Documentation
 
 - **[Wiki Docs](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki)** - Detailed usage guide
