@@ -283,6 +283,19 @@ Claude가 수행:
 - [GitHub Repository](https://github.com/MUSE-CODE-SPACE/content-genie-mcp)
 - [MCP Registry](https://registry.modelcontextprotocol.io)
 
+## Security
+
+This is a public MCP server that fetches third-party URLs and accepts
+LLM-driven input — see [`SECURITY.md`](./SECURITY.md) for the threat
+model, the SSRF/host-allowlist guard, the 30 s fetch timeout + 5 MiB
+body cap, and how to override the default allowed hosts via the
+`CONTENT_GENIE_ALLOWED_HOSTS` env var.
+
+**Reporting a vulnerability:** please open a private GitHub Security
+Advisory at
+<https://github.com/MUSE-CODE-SPACE/content-genie-mcp/security/advisories/new>
+rather than a public issue.
+
 ## License
 
 MIT License

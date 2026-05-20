@@ -1,17 +1,29 @@
 {
   "name": "content-genie-mcp",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "mcpName": "io.github.MUSE-CODE-SPACE/content-genie",
   "description": "AI Content Creation Assistant MCP - 한국 콘텐츠 크리에이터를 위한 트렌드 분석 및 콘텐츠 생성 도우미",
   "main": "dist/index.js",
   "bin": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "server.json"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/MUSE-CODE-SPACE/content-genie-mcp.git"
   },
   "homepage": "https://github.com/MUSE-CODE-SPACE/content-genie-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/MUSE-CODE-SPACE/content-genie-mcp/issues"
+  },
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "start:http": "MCP_HTTP_MODE=true node dist/index.js",
     "dev": "ts-node src/index.ts",

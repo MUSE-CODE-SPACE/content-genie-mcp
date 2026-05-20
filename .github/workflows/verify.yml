@@ -1,0 +1,39 @@
+name: MCP Inspector smoke test
+
+# Manual smoke test that boots the server under MCP Inspector's CLI and
+# checks that tool listing succeeds. Triggered on-demand only — keeps the
+# default-branch CI fast and avoids flakiness when the Inspector npx
+# bundle changes upstream.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    name: MCP Inspector listTools
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install & build
+        run: |
+          npm ci
+          npm run build
+
+      # @modelcontextprotocol/inspector ships a non-interactive CLI mode.
+      # If the bundle changes shape, this step is allowed to fail without
+      # blocking — it's a smoke test, not a gate.
+      - name: List tools via Inspector
+        continue-on-error: true
+        run: |
+          npx -y @modelcontextprotocol/inspector \
+            --cli node dist/index.js \
+            --method tools/list

@@ -9,6 +9,8 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 import express, { Request, Response } from "express";
 import cors from "cors";
+import { fetchWithRetry, validatePublicUrl } from "./core/security.js";
+import { ToolError } from "./core/errors.js";
 
 // =============================================================================
 // Content Genie MCP v2.5 - 한국 콘텐츠 크리에이터를 위한 AI 어시스턴트 (프로 버전)
@@ -16,7 +18,7 @@ import cors from "cors";
 
 const server = new McpServer({
   name: "content-genie-mcp",
-  version: "2.10.0",
+  version: "2.11.0",
 });
 
 // =============================================================================
@@ -2920,15 +2922,30 @@ async function analyzeAdvancedCompetitorContent(urls: string[], depth: string, e
 
   for (const url of urls) {
     try {
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        },
-        timeout: 15000,
-      });
+      // Security: validate user-supplied URL against allowed-hosts whitelist
+      // and reject internal/private targets (SSRF guard).
+      // Override hosts via CONTENT_GENIE_ALLOWED_HOSTS env var.
+      validatePublicUrl(url);
 
-      const $ = cheerio.load(response.data);
+      const fetched = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+          },
+        },
+        { timeout: 30_000, maxRetries: 2, maxBodyBytes: 5 * 1024 * 1024 }
+      );
+
+      // fetchWithRetry surfaces transient retries internally; non-retryable
+      // non-2xx is just reported back to the caller below.
+      if (fetched.status >= 400) {
+        results.push({ url, error: `HTTP ${fetched.status} ${fetched.statusText}` });
+        continue;
+      }
+
+      const $ = cheerio.load(fetched.body);
 
       const analysis: any = {
         url,
@@ -2984,7 +3001,17 @@ async function analyzeAdvancedCompetitorContent(urls: string[], depth: string, e
 
       results.push(analysis);
     } catch (error: any) {
-      results.push({ url, error: `분석 실패: ${error.message || '알 수 없는 오류'}` });
+      // Surface ToolError code + context for security/timeout/SSRF rejections
+      // so callers can distinguish validation failures from network failures.
+      if (error instanceof ToolError) {
+        results.push({
+          url,
+          error: `분석 실패 (${error.code}): ${error.message}`,
+          context: error.context,
+        });
+      } else {
+        results.push({ url, error: `분석 실패: ${error.message || '알 수 없는 오류'}` });
+      }
     }
   }
 
@@ -4592,7 +4619,7 @@ async function main() {
     // - Stateless 모드 (세션 없음)
     // - DNS rebinding 보호
     // ==========================================================================
-    console.log(`Starting Content Genie MCP Server v2.10.0 in Streamable HTTP mode...`);
+    console.log(`Starting Content Genie MCP Server v2.11.0 in Streamable HTTP mode...`);
 
     // createMcpExpressApp은 localhost 바인딩 시 DNS rebinding 보호 자동 적용
     // Remote 서버의 경우 0.0.0.0 바인딩하므로 별도 설정
@@ -4624,7 +4651,7 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.10.0',
+        version: '2.11.0',
         protocol: '2025-03-26',
         transport: 'streamable-http',
         tools: 17,
@@ -4636,7 +4663,7 @@ async function main() {
       res.json({
         status: 'ok',
         server: 'content-genie-mcp',
-        version: '2.10.0',
+        version: '2.11.0',
         protocol: '2025-03-26',
         transport: 'streamable-http',
         tools: 17,
@@ -4668,7 +4695,7 @@ async function main() {
     });
 
     app.listen(port, host, () => {
-      console.log(`Content Genie MCP Server v2.10.0 running on http://${host}:${port}`);
+      console.log(`Content Genie MCP Server v2.11.0 running on http://${host}:${port}`);
       console.log(`Protocol: MCP 2025-03-26 (Streamable HTTP)`);
       console.log(`Mode: Stateless (no session)`);
       console.log(`Health check: http://${host}:${port}/health`);
@@ -4678,7 +4705,7 @@ async function main() {
     // stdio 모드 (Claude Desktop, Claude Code용)
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Content Genie MCP Server v2.10.0 running on stdio");
+    console.error("Content Genie MCP Server v2.11.0 running on stdio");
   }
 }
 
