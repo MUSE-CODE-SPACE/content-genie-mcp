@@ -1,59 +1,39 @@
-# Content Genie MCP
+# content-genie-mcp
 
-**AI Content Creation Assistant MCP Server**
+> Korean-content-creator MCP that gives Claude live Naver/Daum/Google/YouTube/Zum trends, a 100+ Korean-holiday DB, and a viral-score predictor — so you stop tab-hopping between 5 trend dashboards before every post.
 
-> All-in-one content assistant for Korean content creators - Trend analysis, SEO optimization, viral prediction
-
-[![npm version](https://badge.fury.io/js/content-genie-mcp.svg)](https://www.npmjs.com/package/content-genie-mcp)
+[![CI](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/content-genie-mcp.svg)](https://www.npmjs.com/package/content-genie-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Wiki](https://img.shields.io/badge/docs-Wiki-blue.svg)](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki)
+![Maintained](https://img.shields.io/badge/maintained-yes-brightgreen.svg)
 
-[English](#english) | [한국어](#korean)
+[English](#english) · [한국어](#한국어)
 
 ---
 
 <a name="english"></a>
-## English
+## Why content-genie?
 
-### Overview
+Most "trend" MCPs are thin wrappers around Google Trends. If you're publishing for a Korean audience (Naver Blog, YouTube Korea, Instagram KR, TikTok), Google alone misses the signal — Naver Datalab, Daum search, Zum realtime, and KR-region YouTube each surface different keywords at different hours. content-genie consolidates **all five sources** into one MCP, layers a **100+ Korean-holiday + 14일-day-series + 절기 event database** so Claude can plan around 빼빼로데이 and 수능 without being told, and finishes the loop with a **viral-score predictor** trained on the structural patterns (numbers, brackets, emotional triggers, urgency words) that move CTR in Korean content.
 
-Content Genie MCP is an MCP server providing **17 powerful tools** for bloggers, YouTubers, Instagrammers, and marketers. It offers Korean market-specialized trend analysis, content idea generation, SEO optimization, viral prediction, and influencer collaboration analysis.
+The Phase 4 refactor (v2.12.0, May 2026) made the whole thing safe to depend on: every scraper sits behind a **per-source circuit breaker** (3 fails → open 5 min) with a **stale-cache fallback**, so a Naver HTML change no longer takes the whole MCP down — it just degrades that one source and tells the LLM about it via `resource://content-genie/sources`.
 
-### Features
+## What's new in v2.12.0
 
-- **Real-time Trend Scraping** - Naver, Daum, Google, YouTube, Zum
-- **100+ Korean Holiday/Event DB** - Seasonal content planning
-- **Advanced Viral Score Prediction** - AI-powered S~D grade system
-- **Cross-platform Cache System** - 30-minute TTL trend cache
-- **Real-time SEO API** - Naver/Google autocomplete integration
+- **17 tools, one registry, six small files.** The old 4,712-line `index.ts` is gone — tools live in `src/tools/{trends,seo,contentIdeas,viralScoring,competitorAnalysis,koreanEvents}.ts`. Adding a tool is a one-liner.
+- **Scrapers can't take the server down anymore.** Per-source circuit breaker + LRU/TTL cache (15 min, 100 entries) + stale fallback. When Naver is degraded, Claude sees `source_status: 'stale'` and adapts.
+- **Two new MCP Resources for `@-mention`.** `resource://content-genie/korean-events/{year}` returns the full event DB rebased to any year; `resource://content-genie/sources` exposes live breaker + cache state.
+- **Two MCP Prompts as guided workflows.** `viral-title` chains `optimize_title_hashtags` → `predict_viral_score` → `generate_ab_test_variants`. `competitor-analysis` does URL analysis + gap-filling ideation.
+- **38 tests across 8 suites.** Circuit breaker transitions, cache eviction, scraper fallback paths, SSRF guard, every tool group — runs on Node 20 + 22 in CI.
 
-### 17 Core Tools
+## 5-minute Quickstart
 
-| # | Tool | Description |
-|---|------|-------------|
-| 1 | `get_korean_trends` | Real-time trends from Naver/Daum/Google/YouTube/Zum |
-| 2 | `generate_content_ideas` | AI content ideas + seasonal/trend integration |
-| 3 | `optimize_title_hashtags` | CTR-optimized titles + platform-specific hashtags |
-| 4 | `analyze_seo_keywords` | Naver/Google SEO analysis + long-tail keywords |
-| 5 | `create_content_calendar` | Content calendar with Korean holidays |
-| 6 | `analyze_competitor_content` | Deep competitor content analysis |
-| 7 | `predict_viral_score` | AI viral potential prediction (S~D grade) |
-| 8 | `analyze_news_trends` | Real-time Korean news trend analysis |
-| 9 | `generate_hashtag_strategy` | Platform-specific hashtag strategy |
-| 10 | `benchmark_content_performance` | Industry performance benchmarks |
-| 11 | `generate_ab_test_variants` | Auto A/B test variant generation |
-| 12 | `get_seasonal_content_guide` | Seasonal/event content guide |
-| 13 | `analyze_thumbnail` | Thumbnail analysis + CTR optimization |
-| 14 | `generate_script_outline` | Script/outline auto-generation |
-| 15 | `repurpose_content` | Content repurposing strategy |
-| 16 | `analyze_influencer_collab` | Influencer collaboration analysis |
-| 17 | `predict_content_performance` | AI content performance prediction |
+```bash
+# 1. Install via Claude Code (recommended)
+claude mcp add content-genie -- npx -y content-genie-mcp
 
-### Installation
-
-#### Claude Desktop
-
-Add to `claude_desktop_config.json`:
+# 2. Or add to Claude Desktop's claude_desktop_config.json:
+```
 
 ```json
 {
@@ -66,313 +46,179 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-#### Claude Code
+3. Restart Claude Desktop (or `claude` will pick it up on the next run).
+4. Try this in Claude:
 
-```bash
-claude mcp add content-genie-mcp -- npx -y content-genie-mcp
+```
+오늘 한국에서 뜨는 키워드 5개로 유튜브 쇼츠 제목 후보 3개씩 만들고, 각각 바이럴 점수 등급 매겨줘.
 ```
 
-#### Remote MCP Server (Streamable HTTP)
+5. Expected: Claude calls `get_korean_trends` (naver+daum+google+youtube+zum merged) → `optimize_title_hashtags` per keyword → `predict_viral_score` → returns a ranked S/A/B/C/D grade table with the structural reason ("제목에 숫자 + 호기심 트리거 포함").
 
-Content Genie MCP supports **MCP 2025-03-26 Streamable HTTP** transport for remote server deployment.
+## Real use cases
 
-```bash
-# Start server in HTTP mode
-MCP_HTTP_MODE=true npx content-genie-mcp
+### 1. "I need a Korean blog post topic that won't be obsolete by tomorrow"
+**Problem:** Naver Blog rewards quick takes on the keywords trending *right now*, but those keywords change every 4 hours.
+**With this MCP:** Claude calls `get_korean_trends({ platform: 'naver', limit: 20 })` and then `generate_content_ideas` against the freshest 5 keywords with `seasonal: true`. The seasonal layer adds upcoming Korean events from the 100+ DB — so the suggestion isn't just "AI 추천 도구" but "AI 추천 도구 + 수능 D-30 콘텐츠 기획" because `get_seasonal_content_guide` saw 수능 is 4 weeks out.
+**Why it's better than the Naver Datalab UI:** Datalab gives you a chart. This MCP gives you 5 titled, hashtag-optimized post drafts grounded in those same trends, in one conversational round-trip.
 
-# With custom host and port
-HOST=0.0.0.0 PORT=3000 MCP_HTTP_MODE=true npx content-genie-mcp
+### 2. "Will this YouTube Shorts title actually pop?"
+**Problem:** Title CTR is the single biggest lever on Shorts, but you only know after you publish.
+**With this MCP:** Paste your draft into Claude, say "use the `viral-title` prompt". The prompt chains `optimize_title_hashtags` → `predict_viral_score` → `generate_ab_test_variants` and returns an S~D grade plus 5 A/B variants with the structural deltas (added number, added urgency word, shortened to 25 chars).
+**Why it's better than vibes:** the scorer reads the same 6 signal classes a Korean copywriter would — emotional triggers (`충격|실화|숨겨진`), structural elements (numbers/brackets/`?`/`!`), urgency, social proof, utility framings (`방법|꿀팁|노하우`), and length window — and tells you which ones are missing.
+
+### 3. "I run a small Korean brand, I need a content calendar that respects local holidays"
+**Problem:** Generic calendar tools don't know about 빼빼로데이, 김장철, 수능, or 한가위 연휴, so you end up posting a promo on 현충일.
+**With this MCP:** Claude calls `create_content_calendar({ months: 3, niche: 'beauty' })`, which joins your 3-month window against the 100+ event DB (공휴일 18 + 데이 시리즈 12 + 절기 15 + 상업 이벤트 15 + 시즌/날씨 12 + 입시 10 + 쇼핑 10 + 크리에이터 특화 8) and produces a date-by-date plan with content themes per event.
+**Why it's better than a Notion template:** the DB is rebased to any year (`resource://content-genie/korean-events/2027` is a single `@-mention` away), so the calendar stays accurate next year without you maintaining it.
+
+## Tools / Resources / Prompts
+
+| Name | Type | What it does |
+|------|------|--------------|
+| `get_korean_trends` | tool | Real-time trends across Naver / Daum / Google / YouTube / Zum, merged + de-duped |
+| `analyze_news_trends` | tool | Korean news headline trends with category buckets |
+| `analyze_seo_keywords` | tool | Naver + Google autocomplete + long-tail expansion |
+| `optimize_title_hashtags` | tool | CTR-optimized title rewrites + per-platform hashtag set |
+| `generate_hashtag_strategy` | tool | Per-platform (IG/YT/TikTok/Naver) hashtag mix with breadth/depth split |
+| `generate_content_ideas` | tool | Idea generation seeded by trend + season + niche |
+| `generate_script_outline` | tool | Long-form script / short-form scene-by-scene outline |
+| `repurpose_content` | tool | One post → cross-platform variants (Blog → Shorts → Reel → Thread) |
+| `predict_viral_score` | tool | S~D grade with structural / emotional / urgency reasons |
+| `generate_ab_test_variants` | tool | N A/B title variants with the lever changed in each |
+| `predict_content_performance` | tool | Heuristic CTR / share / save estimate |
+| `analyze_thumbnail` | tool | Thumbnail concept analysis + CTR-optimization checklist |
+| `analyze_competitor_content` | tool | URL-fetch competitor post (SSRF-guarded) + gap analysis |
+| `benchmark_content_performance` | tool | Industry benchmarks by niche / platform |
+| `analyze_influencer_collab` | tool | Influencer fit / audience-overlap / brief generator |
+| `create_content_calendar` | tool | Multi-month calendar joined against Korean event DB |
+| `get_seasonal_content_guide` | tool | "What should I post in the next 2 weeks?" — event-aware |
+| `resource://content-genie/korean-events/{year}` | resource | Full 100+ event DB rebased to any year (JSON) |
+| `resource://content-genie/sources` | resource | Live scraper breaker + cache state for graceful degradation |
+| `prompt://content-genie/viral-title` | prompt | optimize → predict → A/B-vary, one slash command |
+| `prompt://content-genie/competitor-analysis` | prompt | URL fetch → gap-fill ideation workflow |
+
+## How it works
+
+```
+                    Claude (or any MCP client)
+                              │
+                              ▼
+                        McpServer (SDK 1.25)
+                              │
+                  ┌───────────┼───────────┐
+                  ▼           ▼           ▼
+              17 tools    Resources    Prompts
+                  │
+                  ▼
+            runScraper()  ◄── core/cache.ts (LRU + 15min TTL)
+                  │       ◄── core/circuitBreaker.ts (3-fail → open 5min)
+                  ▼
+         scrapers/{naver,daum,google,youtube,zum}.ts
+                  │
+                  ▼
+            core/security.ts (SSRF + 30s timeout + 5MiB cap)
 ```
 
-**Endpoints:**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
+Three design choices that matter:
+1. **Per-source circuit breaker.** A bad day at Naver doesn't take down 16 other tools — only the trend tools that need Naver, and even those return a stale-cache `status: 'stale'` envelope so the LLM can adapt.
+2. **Scrapers never throw.** They return a `ScrapeResult` envelope (`ok | stale | unavailable`). All error handling is in one place (`runScraper`), so adding a new source is "write a scraper, return `ScrapeResult`, done".
+3. **Event DB rebased on read.** The 100+ Korean holiday/event database is stored as month-day rules and rebased to any year on demand — so `…/korean-events/2027` works today.
+
+## Configuration
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `MCP_HTTP_MODE` | `false` | `true` to run as Streamable HTTP server instead of stdio |
+| `HOST` | `0.0.0.0` | HTTP bind host |
+| `PORT` | `3000` | HTTP bind port |
+| `CONTENT_GENIE_ALLOWED_HOSTS` | KR search/social/commerce allowlist | Comma-separated host allowlist for `analyze_competitor_content` SSRF guard. Override to add your own competitor domains. |
+
+HTTP endpoints (when `MCP_HTTP_MODE=true`):
+
+| Method | Path | Purpose |
+|--------|------|---------|
 | GET | `/` | Server info |
-| GET | `/health` | Health check |
-| POST | `/mcp` | MCP JSON-RPC requests |
-| GET | `/mcp` | SSE stream for server messages |
+| GET | `/health` | Health probe (Railway/Docker) |
+| POST | `/mcp` | MCP JSON-RPC requests (2025-03-26 spec) |
+| GET | `/mcp` | SSE stream for server-initiated messages |
 
-**Example Request:**
-```bash
-# Initialize
-curl -X POST http://localhost:3000/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+## Known limitations
 
-# List tools
-curl -X POST http://localhost:3000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-```
+- **Scrapers are HTML-driven.** Naver / Daum / Zum don't expose public trend APIs; the scrapers parse HTML. When they change their markup, the affected source returns `status: 'unavailable'` until we ship a parser fix. The circuit breaker keeps the rest of the MCP working in the meantime.
+- **Viral score is structural, not semantic.** `predict_viral_score` is a heuristic over Korean copy patterns. It can't read the *meaning* of your post — only the structural / emotional / urgency signals in the title + description.
+- **No thumbnail image analysis.** `analyze_thumbnail` works on a *thumbnail concept description*, not on an uploaded image. Image-in is on the roadmap.
+- **Korean-first.** Hashtag templates, urgency words, and the event DB are Korean. English/JP modes are not in scope for v2.x.
 
-**Docker Deployment:**
-```bash
-docker build -t content-genie-mcp .
-docker run -p 3000:3000 -e MCP_HTTP_MODE=true content-genie-mcp
-```
+## When NOT to use this
 
-### Example Usage
+- If you need a **global trend dashboard**, use Google Trends directly — content-genie is opinionated toward the Korean creator stack.
+- If you need **paid keyword data with search volume** (네이버 검색광고 API, Ahrefs, SEMrush), use those — content-genie's SEO tools rely on free autocomplete + heuristic long-tail expansion.
+- If you need **deterministic LLM-free copy generation** for compliance reasons, this MCP feeds an LLM — the LLM is what writes the actual titles.
 
-```
-User: "What are trending topics in Korea right now?"
+## Comparison
 
-Claude will:
-1. Fetch real-time trends from Naver, Daum, Google, YouTube
-2. Categorize trends (news, entertainment, tech, etc.)
-3. Suggest content opportunities
-4. Provide upcoming events and holidays
-```
+| | content-genie-mcp | Raw scraping yourself | Naver Datalab UI | SmartEditor / 네이버 검색광고 API |
+|---|---|---|---|---|
+| Multi-source merge (5 KR sources) | yes | DIY | Naver only | Naver only |
+| Korean event DB built-in | 100+ events | no | no | no |
+| Circuit breaker + cache | yes | DIY | n/a | n/a |
+| Viral score heuristic | yes | no | no | no |
+| MCP-native (Claude `@-mention` events) | yes | no | no | no |
+| Cost | free (npm) | dev time | free | paid above quota |
 
-### Target Users
+## Roadmap
 
-- **Bloggers**: Naver Blog, Tistory operators
-- **YouTubers**: Content planning and title optimization
-- **Instagrammers**: Hashtag strategy and posting schedule
-- **TikTokers**: Trend analysis and viral prediction
-- **Marketers**: Content marketing strategy
-- **Startups**: Brand content planning
-
----
-
-<a name="korean"></a>
-## 한국어
-
-### 개요
-
-Content Genie MCP는 블로거, 유튜버, 인스타그래머, 마케터를 위한 **17가지 강력한 도구**를 제공하는 MCP 서버입니다. 한국 시장에 특화된 트렌드 분석, 콘텐츠 아이디어 생성, SEO 최적화, 바이럴 예측, 인플루언서 협업 분석 기능을 제공합니다.
-
-### 주요 기능
-
-- **실시간 트렌드 스크래핑** - 네이버, 다음, 구글, 유튜브, 줌
-- **100+ 한국 기념일/이벤트 DB** - 시즌 콘텐츠 기획
-- **고급 바이럴 점수 예측** - AI 기반 S~D 등급 시스템
-- **크로스 플랫폼 캐시 시스템** - 30분 TTL 트렌드 캐시
-- **실시간 SEO API** - 네이버/구글 자동완성 연동
-
-### 17가지 핵심 도구
-
-| # | 도구 | 설명 |
-|---|------|------|
-| 1 | `get_korean_trends` | 네이버/다음/구글/유튜브/줌 실시간 트렌드 |
-| 2 | `generate_content_ideas` | AI 콘텐츠 아이디어 + 시즌/트렌드 연계 |
-| 3 | `optimize_title_hashtags` | CTR 최적화 제목 + 플랫폼별 해시태그 |
-| 4 | `analyze_seo_keywords` | 네이버/구글 SEO 분석 + 롱테일 키워드 |
-| 5 | `create_content_calendar` | 한국 기념일 반영 콘텐츠 캘린더 |
-| 6 | `analyze_competitor_content` | 경쟁사 콘텐츠 심층 분석 |
-| 7 | `predict_viral_score` | AI 바이럴 가능성 예측 (S~D 등급) |
-| 8 | `analyze_news_trends` | 실시간 한국 뉴스 트렌드 분석 |
-| 9 | `generate_hashtag_strategy` | 플랫폼별 해시태그 전략 생성 |
-| 10 | `benchmark_content_performance` | 업계별 성과 벤치마크 |
-| 11 | `generate_ab_test_variants` | A/B 테스트 변형 자동 생성 |
-| 12 | `get_seasonal_content_guide` | 시즌/이벤트 콘텐츠 가이드 |
-| 13 | `analyze_thumbnail` | 썸네일 분석 + CTR 최적화 |
-| 14 | `generate_script_outline` | 스크립트/대본 아웃라인 생성 |
-| 15 | `repurpose_content` | 콘텐츠 리퍼포징 전략 |
-| 16 | `analyze_influencer_collab` | 인플루언서 협업 분석 |
-| 17 | `predict_content_performance` | 콘텐츠 성과 예측 AI |
-
-### 설치 및 사용법
-
-#### Claude Desktop
-
-`claude_desktop_config.json`에 추가:
-
-```json
-{
-  "mcpServers": {
-    "content-genie": {
-      "command": "npx",
-      "args": ["-y", "content-genie-mcp"]
-    }
-  }
-}
-```
-
-#### Claude Code
-
-```bash
-claude mcp add content-genie-mcp -- npx -y content-genie-mcp
-```
-
-#### Remote MCP 서버 (Streamable HTTP)
-
-Content Genie MCP는 원격 서버 배포를 위한 **MCP 2025-03-26 Streamable HTTP** 전송을 지원합니다.
-
-```bash
-# HTTP 모드로 서버 시작
-MCP_HTTP_MODE=true npx content-genie-mcp
-
-# 커스텀 호스트 및 포트 설정
-HOST=0.0.0.0 PORT=3000 MCP_HTTP_MODE=true npx content-genie-mcp
-```
-
-**엔드포인트:**
-| 메서드 | 엔드포인트 | 설명 |
-|--------|----------|------|
-| GET | `/` | 서버 정보 |
-| GET | `/health` | 헬스 체크 |
-| POST | `/mcp` | MCP JSON-RPC 요청 |
-| GET | `/mcp` | 서버 메시지용 SSE 스트림 |
-
-**요청 예시:**
-```bash
-# 초기화
-curl -X POST http://localhost:3000/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-
-# 도구 목록 조회
-curl -X POST http://localhost:3000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-```
-
-**Docker 배포:**
-```bash
-docker build -t content-genie-mcp .
-docker run -p 3000:3000 -e MCP_HTTP_MODE=true content-genie-mcp
-```
-
-### 사용 예시
-
-```
-User: "요즘 한국에서 뭐가 트렌드야?"
-
-Claude가 수행:
-1. 네이버, 다음, 구글, 유튜브에서 실시간 트렌드 수집
-2. 트렌드 카테고리 분류 (뉴스, 엔터, 테크 등)
-3. 콘텐츠 기회 제안
-4. 다가오는 이벤트 및 기념일 안내
-```
-
-### 한국 기념일 DB (100+)
-
-- **공휴일 (18개)**: 새해, 설날 연휴, 삼일절, 어린이날, 부처님오신날, 현충일, 광복절, 추석 연휴, 개천절, 한글날, 크리스마스 등
-- **14일 데이 시리즈 (12개)**: 발렌타인데이, 화이트데이, 블랙데이, 로즈데이, 키스데이, 빼빼로데이 등
-- **전통 절기 (15개)**: 정월대보름, 입춘, 경칩, 하지, 초복/중복/말복, 동지 등
-- **글로벌/상업 이벤트 (15개)**: 할로윈, 블랙프라이데이, 사이버먼데이, 지구의날 등
-- **학교/입시 관련 (10개)**: 개학, 수능, 졸업시즌, 방학 등
-- **쇼핑 시즌 (10개)**: 신년 세일, 여름 세일, 가을 신상, 연말 세일 등
-- **시즌/날씨 관련 (12개)**: 벚꽃 시즌, 장마, 폭염, 단풍, 김장철 등
-- **크리에이터 특화 (8개)**: 연간 콘텐츠 기획, 알고리즘 시즌, 연말결산 등
-
-### 타겟 사용자
-
-- **블로거**: 네이버 블로그, 티스토리 운영자
-- **유튜버**: 콘텐츠 기획 및 제목 최적화
-- **인스타그래머**: 해시태그 전략 및 포스팅 일정
-- **틱토커**: 트렌드 분석 및 바이럴 예측
-- **마케터**: 콘텐츠 마케팅 전략 수립
-- **스타트업**: 브랜드 콘텐츠 기획
-
----
-
-## Architecture (v2.12.0+)
-
-```
-src/
-├── index.ts                  # entry point: HTTP/stdio bootstrap (~100 LOC)
-├── server.ts                 # McpServer factory + registry wiring
-├── types.ts                  # shared Zod schemas + types
-├── core/
-│   ├── registry.ts           # central tool registry
-│   ├── cache.ts              # LRU + TTL cache (15min, 100 entries)
-│   ├── circuitBreaker.ts     # per-source breaker (3 fails → open 5min)
-│   ├── security.ts           # SSRF guard + fetchWithRetry (Phase 1)
-│   └── errors.ts             # ToolError class (Phase 1)
-├── scrapers/
-│   ├── shared.ts             # runScraper() reliability wrapper
-│   ├── naver.ts              # autocomplete + realtime + blog benchmark
-│   ├── daum.ts               # autocomplete + news headlines
-│   ├── google.ts             # Trends RSS + autocomplete
-│   ├── youtube.ts            # trending video parsing
-│   └── zum.ts                # realtime widget + news
-├── tools/
-│   ├── trends.ts             # get_korean_trends, analyze_news_trends
-│   ├── seo.ts                # analyze_seo_keywords, optimize_title_hashtags, generate_hashtag_strategy
-│   ├── contentIdeas.ts       # generate_content_ideas, generate_script_outline, repurpose_content
-│   ├── viralScoring.ts       # predict_viral_score, generate_ab_test_variants, predict_content_performance, analyze_thumbnail
-│   ├── competitorAnalysis.ts # analyze_competitor_content (SSRF-guarded), benchmark_content_performance, analyze_influencer_collab
-│   └── koreanEvents.ts       # create_content_calendar, get_seasonal_content_guide
-├── data/
-│   └── koreanEvents.ts       # 100+ Korean holiday/event DB
-├── resources.ts              # MCP Resources (korean-events/{year}, sources)
-├── prompts.ts                # MCP Prompts (viral-title, competitor-analysis)
-└── __tests__/                # jest test suite (38 tests across 8 suites)
-```
-
-**Reliability primitives** — every scraper goes through `runScraper()`,
-which:
-
-1. Returns cached fresh data (≤ 15 min) without hitting the network.
-2. Otherwise runs through the per-source circuit breaker.
-3. After 3 consecutive failures, the circuit opens for 5 minutes and
-   subsequent calls short-circuit (no network hit) returning a stale
-   cache entry if any (`status: 'stale'`) or `status: 'unavailable'`.
-4. After 5 minutes the circuit goes half-open and the next call gets
-   one shot to close it.
-
-The `resource://content-genie/sources` resource exposes the live state of
-every scraper's breaker so the LLM can adapt its strategy.
+- **More sources.** Tistory realtime, Brunch picks, Kakao View — currently 5 sources, want 8.
+- **Image-in thumbnail analysis.** Accept uploaded thumbnails and run vision-based CTR scoring.
+- **Cached-trend Resource.** Expose `resource://content-genie/trends/{platform}/latest` so the LLM can `@-mention` last-scrape results without spending a tool call.
+- **Video script → captions/subtitles.** Pair `generate_script_outline` with a captions formatter for Shorts upload.
+- **Naver 검색광고 API integration (opt-in).** When the user supplies an API key, switch SEO tools from autocomplete heuristics to real search volume.
 
 ## Contributing
 
-Contributions are welcome! The Phase 4 (v2.12.0) refactor makes the
-codebase friendly for external contributors:
+PRs welcome. The Phase 4 refactor made the codebase contributor-friendly — adding a tool is a single-file change. See the `Contributing` section below or open an issue first if you want to discuss a larger change. CI runs `typecheck + test + build` on Node 20 + 22 against every PR.
 
-1. **Fork & clone.** Run `npm install`.
-2. **Pick a module.** Each tool lives in `src/tools/<group>.ts`; scrapers
-   in `src/scrapers/<source>.ts`. Adding a new tool = add a new
-   `ToolDefinition` to the relevant module and re-export it.
-3. **Write a test.** Tests live in `src/__tests__/`. Each tool group has
-   at least one happy-path + one error-path test. Tools that hit the
-   network should use `runScraper`/`fetchWithRetry` so they degrade
-   gracefully — and so they can be tested without real HTTP calls.
-4. **Run the verification suite** before pushing:
-   ```bash
-   npm run typecheck
-   npm test
-   npm run build
-   ```
-5. **Open a PR.** GitHub Actions runs `typecheck + test + build` on
-   Node 20 and 22.
+Quick contributor loop:
 
-Code style: native ESM, strict TypeScript, no external lint config (we
-rely on `tsc`).
-
-## Documentation
-
-- **[Wiki Docs](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki)** - Detailed usage guide
-  - [Installation Guide](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Installation)
-  - [Quick Start](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Quick-Start)
-  - [17 Tools Overview](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/Tools-Overview)
-  - [API Reference](https://github.com/MUSE-CODE-SPACE/content-genie-mcp/wiki/API-Reference)
-
-## Links
-
-- [npm Package](https://www.npmjs.com/package/content-genie-mcp)
-- [GitHub Repository](https://github.com/MUSE-CODE-SPACE/content-genie-mcp)
-- [MCP Registry](https://registry.modelcontextprotocol.io)
+```bash
+git clone https://github.com/MUSE-CODE-SPACE/content-genie-mcp
+cd content-genie-mcp
+npm install
+npm run typecheck && npm test && npm run build
+```
 
 ## Security
 
-This is a public MCP server that fetches third-party URLs and accepts
-LLM-driven input — see [`SECURITY.md`](./SECURITY.md) for the threat
-model, the SSRF/host-allowlist guard, the 30 s fetch timeout + 5 MiB
-body cap, and how to override the default allowed hosts via the
-`CONTENT_GENIE_ALLOWED_HOSTS` env var.
-
-**Reporting a vulnerability:** please open a private GitHub Security
-Advisory at
-<https://github.com/MUSE-CODE-SPACE/content-genie-mcp/security/advisories/new>
-rather than a public issue.
+This MCP fetches third-party URLs and takes LLM-driven input. The threat model, SSRF host allowlist, 30-second fetch timeout + 5 MiB body cap, and `CONTENT_GENIE_ALLOWED_HOSTS` override are documented in [`SECURITY.md`](./SECURITY.md). **Report vulnerabilities privately** via a GitHub Security Advisory at <https://github.com/MUSE-CODE-SPACE/content-genie-mcp/security/advisories/new>.
 
 ## License
 
-MIT License
+MIT — SPDX identifier declared in [`package.json`](./package.json) (a top-level `LICENSE` file will be added in the next release).
 
-## Author
+## Maintainer
 
-**Yoonkyoung Gong** - [GitHub](https://github.com/MUSE-CODE-SPACE)
+[@yoon-k](https://github.com/MUSE-CODE-SPACE) (MUSE-CODE-SPACE). For support, open an issue: <https://github.com/MUSE-CODE-SPACE/content-genie-mcp/issues>.
+
+---
+
+<a name="한국어"></a>
+## 한국어 요약
+
+content-genie-mcp는 한국 콘텐츠 크리에이터를 위한 MCP 서버입니다. **네이버 / 다음 / 구글 / 유튜브 / 줌** 5개 소스의 실시간 트렌드를 한 번에 합쳐 보여주고, **100+ 한국 기념일/이벤트 DB**(공휴일 18, 데이 시리즈 12, 절기 15, 상업 이벤트 15, 시즌/날씨 12, 입시 10, 쇼핑 10, 크리에이터 특화 8)와 **바이럴 점수 예측기**(S~D 등급, 한국어 카피 패턴 기반)를 함께 제공합니다.
+
+v2.12.0(2026-05-20)에서 **17개 도구**가 도메인별로 모듈화되었고, **스크래퍼별 회로 차단기 + LRU 캐시 + stale fallback** 으로 한 소스가 망가져도 나머지가 정상 동작합니다. `@-mention` 가능한 **MCP Resources 2개**와 슬래시 명령용 **Prompts 2개**도 추가되었습니다.
+
+설치 (Claude Code):
+
+```bash
+claude mcp add content-genie -- npx -y content-genie-mcp
+```
+
+첫 호출 예시:
+
+```
+오늘 한국에서 뜨는 키워드 5개로 유튜브 쇼츠 제목 후보 3개씩 만들고, 각각 바이럴 점수 등급 매겨줘.
+```
+
+자세한 내용은 영문 섹션, 변경 이력은 [`CHANGELOG.md`](./CHANGELOG.md), 위협 모델은 [`SECURITY.md`](./SECURITY.md)를 참고하세요.
